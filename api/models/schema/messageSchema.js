@@ -54,6 +54,14 @@ const messageSchema = mongoose.Schema(
       type: String,
       meiliIndex: true,
     },
+    tempNodes: { // 회의록 [01:12:56.000] 임시 노드 배열
+  type: [mongoose.Schema.Types.Mixed],
+  default: undefined,
+},
+isImported: { // 회의록 [01:16:32.000] 지식 그래프로 넘어갔는지 여부
+  type: Boolean,
+  default: false,
+},
     summary: {
       type: String,
     },
