@@ -55,6 +55,5 @@ module.exports = {
   categories,
   staticRoute,
   banner,
-  kgraph,
   kgraphRouter,
 };

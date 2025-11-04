@@ -111,6 +111,7 @@ const startServer = async () => {
   app.use('/api/bedrock', routes.bedrock);
 
   app.use('/api/tags', routes.tags);
+  app.use('/api/kgraphs', routes.kgraphRouter);
 
   app.use((req, res) => {
     // Replace lang attribute in index.html with lang from cookies or accept-language header
