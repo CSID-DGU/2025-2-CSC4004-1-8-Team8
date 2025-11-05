@@ -30,7 +30,6 @@ const { getPreset, getPresets, savePreset, deletePresets } = require('./Preset')
 const { createToken, findToken, updateToken, deleteTokens } = require('./Token');
 const {
   Kgraph,
-  createKGraph,
   getKGraph,
   getKGraphs,
   updateKGraph,
@@ -82,7 +81,6 @@ module.exports = {
   deleteTokens,
 
   Kgraph,
-  createKGraph,
   getKGraph,
   getKGraphs,
   updateKGraph,

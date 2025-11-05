@@ -4,28 +4,36 @@ const mongoose = require('mongoose');
 // Knowledge Node: A knowledge node registered on the canvas. It references the actual vector in the Python repository 
 // and stores the x,y node coordinates transformed by the UMAP operation.
 const knowledgeNodeSchema = new mongoose.Schema({
-  id: {
+  content: {
     type: String,
     required: true,
   },
   label: {
-    type: String,
-    required: true,
+    type: [String],
+    required: false,
+    default: [],
   },
   x: {
     type: Number,
-    required: true,
+    required: false,
+    default: null,
   },
   y: {
     type: Number,
-    required: true,
+    required: false,
+    default: null,
   },
-  // Refers to the actual vector in the Python repository
-  vector_ref: {
-    type: String,
+  // vector_ref removed: we now use the node subdocument `_id` (Mongo ObjectId) as the Chroma id
+  // Timestamps for node lifecycle (set on creation/update by application logic)
+  createdAt: {
+    type: Date,
+    required: false,
   },
-  // TODO: 타임스탬프 추가( 새 연결, 수정시마다 갱신하는걸로 )
-}, { _id: false });
+  updatedAt: {
+    type: Date,
+    required: false,
+  },
+});
 
 // "노드 간의 관계. 엣지 벡터(Target -> Source) 및 관계의 유형을 저장."
 // Knowledge Edge: Relationship between nodes. Stores the edge vector (Target -> Source) and the type of relationship.
@@ -39,10 +47,20 @@ const knowledgeEdgeSchema = new mongoose.Schema({
     required: true,
   },
   label: {
-    //TODO: label이 여러개 있을 수 있으니, 배열로 만들기
-    type: String, // Type of relationship
+    type: [String], // Type(s) of relationship
+    required: false,
+    default: [],
   },
-}, { _id: false });
+  // Timestamps for edge lifecycle
+  createdAt: {
+    type: Date,
+    required: false,
+  },
+  updatedAt: {
+    type: Date,
+    required: false,
+  },
+});
 
 const kgraphSchema = new mongoose.Schema({
   user: {
