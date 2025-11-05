@@ -68,6 +68,8 @@ const createNode = async (userId, { label, x, y }) => {
       label: label || '새 노드',
       x: x || 0,
       y: y || 0,
+      idea_text: idea_text || '',
+      vector_ref: vector_ref || null,
     };
 
     graph.nodes.push(newNode); // 배열에 새 노드 추가
@@ -86,10 +88,10 @@ const createNode = async (userId, { label, x, y }) => {
  * 단일 노드의 정보를 (부분) 수정합니다.
  * @param {string} userId - 사용자 ID
  * @param {string} nodeId - 수정할 노드의 _id
- * @param {object} updateData - { label, x, y } (모두 선택적)
+ * @param {object} updateData - { label, x, y, idea_text, vector_ref } (모두 선택적)
  * @returns {Promise<object>} 수정된 노드 객체
  */
-const updateNode = async (userId, nodeId, { label, x, y }) => {
+const updateNode = async (userId, nodeId, { label, x, y, idea_text, vector_ref }) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
     const node = graph.nodes.id(nodeId); // Sub-document ID로 찾기
@@ -107,6 +109,12 @@ const updateNode = async (userId, nodeId, { label, x, y }) => {
     }
     if (y !== undefined) {
       node.y = y;
+    }
+    if (idea_text !== undefined) {
+      node.idea_text = idea_text;
+    }
+    if (vector_ref !== undefined) {
+      node.vector_ref = vector_ref;
     }
 
     await graph.save();
@@ -299,6 +307,19 @@ const deleteEdge = async (userId, { source, target }) => {
   }
 };
 
+// [신규] 4.3 연결 추천 로직 (여기에 함수 구현)
+const getRecommendations = async (userId, nodeId) => {
+  // (로직 구현...)
+  logger.info(`[KGraph] getRecommendations (userId:${userId})`);
+  return []; // 임시 반환
+};
+
+// [신규] 4.4 UMAP 재계산 로직 (여기에 함수 구현)
+const updateUmap = async (userId) => {
+  // (로직 구현...)
+  logger.info(`[KGraph] updateUmap (userId: ${userId})`);
+  return { updated: 0 }; // 임시 반환
+};
 
 // 외부에서 함수들을 사용할 수 있도록 export
 module.exports = {
@@ -310,4 +331,6 @@ module.exports = {
   createEdge,
   updateEdge,
   deleteEdge,
+  getRecommendations,
+  updateUmap,
 };

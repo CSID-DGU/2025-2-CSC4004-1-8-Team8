@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireJwtAuth } = require('../middleware'); // 사용자 인증용 미들웨어
-const KGraph = require('../../models/KGraph'); // 1단계에서 만든 기능 모음 파일
+const KGraph = require('../../models/kGraph'); // 1단계에서 만든 기능 모음 파일
 const logger = require('~/config/winston'); // 로그 기록용
 
 /**
@@ -126,6 +126,37 @@ router.delete('/edges', requireJwtAuth, async (req, res) => {
 // --- API 4.2 & 4.3 (Python 연동 기능) ---
 // 지금은 Chan Park 님이 작업하실 Python 로직을 호출하는 대신
 // "아직 구현되지 않음" (501 Not Implemented)을 반환하는 코드를 넣어둡니다.
+router.get('/recommendations', requireJwtAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { nodeId } = req.query; // Postman Params 탭에서 ?nodeId=... 로 받음
+
+    if (!nodeId) {
+      return res.status(400).json({ message: 'nodeId 쿼리 파라미터가 필요합니다.' });
+    }
+
+    const data = await KGraph.getRecommendations(userId, nodeId);
+    res.status(200).json(data);
+  } catch (error) {
+    logger.error(`[kgraph.js] /recommendations GET Error: ${error.message}`);
+    res.status(500).json({ message: '추천 목록 조회에 실패했습니다.' });
+  }
+});
+
+/**
+ * (API 4.4) POST /api/kgraphs/umap
+ * UMAP 재계산 요청
+ */
+router.post('/umap', requireJwtAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const data = await KGraph.updateUmap(userId);
+    res.status(200).json(data);
+  } catch (error) {
+    logger.error(`[kgraph.js] /umap POST Error: ${error.message}`);
+    res.status(500).json({ message: 'UMAP 재계산에 실패했습니다.' });
+  }
+});
 
 /**
  * (API 4.2) POST /api/kgraphs/graph/cluster

@@ -18,6 +18,14 @@ const nodeSchema = new Schema(
       type: Number,
       default: 0,
     },
+    idea_text: {
+      type: String,
+      required: false,
+    },
+    vector_ref: {
+      type: String,
+      required: false,
+    },
     // Note: API spec 'id' will be served by MongoDB's default '_id'.
     // Note: API spec 'updatedAt' is handled by 'timestamps: true'.
   },
