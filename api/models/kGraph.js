@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
-const KGraph = require('./schema/kgraphSchema');
+// [수정됨] kgraphSchema 객체를 직접 가져옵니다.
+const { kgraphSchema } = require('./schema/kgraphSchema');
 const { Message } = require('./Message'); // 2.3 API (가져오기)에 필요
 const logger = require('~/config/winston');
+
+// [추가됨] 스키마를 'KGraph'라는 이름의 모델로 등록합니다.
+const KGraph = mongoose.model('KGraph', kgraphSchema);
 
 /**
  * 사용자의 지식 그래프 문서를 찾거나, 없으면 새로 생성합니다.
@@ -14,15 +18,17 @@ const getOrCreateGraphDoc = async (userId) => {
     logger.error('[KGraph] getOrCreateGraphDoc: userId가 제공되지 않았습니다.');
     throw new Error('User ID is required');
   }
-  
+
+  // [수정됨] 이제 KGraph는 Mongoose 모델이므로 .findOne() 사용이 가능합니다.
   let graph = await KGraph.findOne({ userId });
-  
+
   if (!graph) {
     logger.info(`[KGraph] 새 그래프 생성 (userId: ${userId})`);
+    // [수정됨] new KGraph()로 새 문서를 생성합니다.
     graph = new KGraph({ userId, nodes: [], edges: [] });
     await graph.save();
   }
-  
+
   return graph;
 };
 
@@ -184,7 +190,9 @@ const deleteNodes = async (userId, { nodeIds }) => {
     });
 
     // 2. 노드들을 제거
-    graph.nodes.pull({ _id: { $in: nodeIds } });
+   nodeIds.forEach(nodeId => {
+      graph.nodes.pull(nodeId);
+    })
 
     await graph.save();
     return { deletedNodes: nodeIds.length };
