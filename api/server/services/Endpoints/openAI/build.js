@@ -16,6 +16,11 @@ const buildOptions = (endpoint, parsedBody) => {
     ...modelOptions
   } = parsedBody;
 
+  // Add this block to enable structured output for specific models
+  if (modelOptions.model && modelOptions.model.includes('gpt-4')) {
+    modelOptions.response_format = { type: 'json_object' };
+  }
+
   const endpointOption = removeNullishValues({
     endpoint,
     modelLabel,
