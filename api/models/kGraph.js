@@ -57,10 +57,10 @@ const getGraph = async (userId) => {
  * (API 2.1) POST /nodes
  * 단일 노드를 생성합니다.
  * @param {string} userId - 사용자 ID
- * @param {object} nodeData - { label, x, y }
+ * @param {object} nodeData - { label, x, y, idea_text, vector_ref }
  * @returns {Promise<object>} 생성된 노드 객체 (id 포함)
  */
-const createNode = async (userId, { label, x, y }) => {
+const createNode = async (userId, { label, x, y, idea_text, vector_ref }) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
     
