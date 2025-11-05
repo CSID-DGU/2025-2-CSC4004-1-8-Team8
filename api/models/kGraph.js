@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
-// [수정됨] kgraphSchema 객체를 직접 가져옵니다.
+// kgraphSchema 객체를 직접 가져옵니다.
 const { kgraphSchema } = require('./schema/kgraphSchema');
 const { Message } = require('./Message'); // 2.3 API (가져오기)에 필요
 const logger = require('~/config/winston');
 
-// [추가됨] 스키마를 'KGraph'라는 이름의 모델로 등록합니다.
+// 스키마를 'KGraph'라는 이름의 모델로 등록합니다.
 const KGraph = mongoose.model('KGraph', kgraphSchema);
 
 /**
@@ -307,14 +307,14 @@ const deleteEdge = async (userId, { source, target }) => {
   }
 };
 
-// [신규] 4.3 연결 추천 로직 (여기에 함수 구현)
+// 4.3 연결 추천 로직 (여기에 함수 구현)
 const getRecommendations = async (userId, nodeId) => {
   // (로직 구현...)
   logger.info(`[KGraph] getRecommendations (userId:${userId})`);
   return []; // 임시 반환
 };
 
-// [신규] 4.4 UMAP 재계산 로직 (여기에 함수 구현)
+// 4.4 UMAP 재계산 로직 (여기에 함수 구현)
 const updateUmap = async (userId) => {
   // (로직 구현...)
   logger.info(`[KGraph] updateUmap (userId: ${userId})`);

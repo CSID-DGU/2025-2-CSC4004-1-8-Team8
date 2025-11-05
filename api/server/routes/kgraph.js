@@ -6,7 +6,7 @@ const logger = require('~/config/winston'); // 로그 기록용
 
 /**
  * (API 4.1) GET /api/kgraphs
- * [수정] 명세서와 일치하도록 경로를 /graph 에서 / 로 변경
+ * 명세서와 일치하도록 경로를 /graph 에서 / 로 변경
  * 사용자의 전체 지식 그래프 조회
  */
 router.get('/', requireJwtAuth, async (req, res) => {
@@ -73,7 +73,7 @@ router.post('/nodes/delete', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { nodeIds: [...] }가 포함되어 있어야 함
     await KGraph.deleteNodes(req.user.id, req.body);
-    // [수정] 명세서와 일치하도록 200 OK -> 204 No Content
+
     res.sendStatus(204);
   } catch (error) {
     logger.error(`[kgraph.js] /nodes/delete POST Error: ${error.message}`);
@@ -113,7 +113,6 @@ router.patch('/edges', requireJwtAuth, async (req, res) => {
 
 /**
  * (API 3.3) POST /api/kgraphs/edges/delete
- * [수정] 명세서와 일치하도록 DELETE /edges -> POST /edges/delete
  * 엣지 삭제 (source, target 기준)
  */
 router.post('/edges/delete', requireJwtAuth, async (req, res) => {
@@ -129,7 +128,6 @@ router.post('/edges/delete', requireJwtAuth, async (req, res) => {
 
 /**
  * (API 4.3) GET /api/kgraphs/recommendations
- * [추가] 누락된 API
  * 노드 연결 추천
  */
 router.get('/recommendations', requireJwtAuth, async (req, res) => {
@@ -152,7 +150,6 @@ router.get('/recommendations', requireJwtAuth, async (req, res) => {
 
 /**
  * (API 4.4) POST /api/kgraphs/umap
- * [수정] 명세서와 일치하도록 경로를 /graph/cluster -> /umap
  * UMAP 재계산 요청
  */
 router.post('/umap', requireJwtAuth, async (req, res) => {
