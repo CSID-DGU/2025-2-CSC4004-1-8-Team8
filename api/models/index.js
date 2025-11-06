@@ -32,6 +32,7 @@ const Session = require('./Session');
 const Balance = require('./Balance');
 const User = require('./User');
 const Key = require('./Key');
+const kGraph = require('./kGraph');
 
 module.exports = {
   comparePassword,
@@ -77,4 +78,5 @@ module.exports = {
   Key,
   Session,
   Balance,
+  kGraph,
 };

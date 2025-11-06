@@ -54,6 +54,21 @@ const messageSchema = mongoose.Schema(
       type: String,
       meiliIndex: true,
     },
+    tempNodes: { 
+  type: [mongoose.Schema.Types.Mixed],
+  default: undefined,
+},
+nodes: {
+      type: Array, // 또는 [nodeSchema] (만약 노드 스키마를 정의했다면)
+      default: [],
+    },
+isImported: { 
+  type: Boolean,
+  default: false,
+},
+isCreatedByUser: {
+  type: Boolean,
+},
     summary: {
       type: String,
     },
@@ -150,6 +165,8 @@ if (process.env.MEILI_HOST && process.env.MEILI_MASTER_KEY) {
     primaryKey: 'messageId',
   });
 }
+
+
 
 messageSchema.index({ createdAt: 1 });
 messageSchema.index({ messageId: 1, user: 1 }, { unique: true });
