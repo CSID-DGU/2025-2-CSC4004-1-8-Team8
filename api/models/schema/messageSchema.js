@@ -138,6 +138,16 @@ const messageSchema = mongoose.Schema(
       default: undefined,
     },
     */
+    temp_nodes: {
+      type: [
+        {
+          nodeSummary: { type: String },
+          isCurated: { type: Boolean, default: false },
+        },
+      ],
+      default: undefined,
+    },
+
   },
   { timestamps: true },
 );

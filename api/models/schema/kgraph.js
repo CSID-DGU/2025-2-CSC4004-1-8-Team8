@@ -21,7 +21,16 @@ const knowledgeNodeSchema = new mongoose.Schema({
   y: {
     type: Number,
     required: false,
-    default: null,
+    default: null,    //TODO: kgraph에 message, conversation id 있어야 함
+
+  },
+  source_message_id : {
+    type : String,
+    required: false,
+  },
+  source_conversation_id : {
+    type: String,
+    required: false,
   },
   // vector_ref removed: we now use the node subdocument `_id` (Mongo ObjectId) as the Chroma id
   // Timestamps for node lifecycle (set on creation/update by application logic)

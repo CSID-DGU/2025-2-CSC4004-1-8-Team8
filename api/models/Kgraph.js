@@ -5,11 +5,6 @@ const kgraphSchema = require('~/models/schema/kgraph');
 const KGraph = mongoose.model('KGraph', kgraphSchema);
 
 const EMBED_URL = process.env.PYTHON_EMBED_URL || 'http://localhost:8000/embed';
-// NOTE: `createKGraph` was removed. Graph creation should be handled by
-// explicit application logic (e.g. via a controller/service) to avoid
-// implicit side-effects like automatic embedding or background upserts.
-// If you need a small helper to create graphs and schedule embedding,
-// implement it in a higher-level module where creation intent is explicit.
 
 /**
  * Add a node into the KGraph that belongs to a specific user.
@@ -92,14 +87,109 @@ const updateKGraph = async (id, updates) => {
   return await KGraph.findByIdAndUpdate(id, updates, { new: true });
 };
 
-const deleteKGraph = async (id) => {
+const deleteUserKGraph = async (id) => {
   return await KGraph.findByIdAndDelete(id);
 };
 
+const deleteNodes = async (userId, nodeId) => {
+
+  // nodeId can be a single id or an array of ids
+  const ObjectId = mongoose.Types.ObjectId;
+
+  const ownerId = ObjectId(userId);
+
+  const ids = Array.isArray(nodeId) ? nodeId : [nodeId];
+  const convertedIds = ids.map((id) => {
+    try {
+      return ObjectId(id);
+    } catch (e) {
+      // fall back to raw value (string)
+      return String(id);
+    }
+  });
+
+  // Pull nodes whose _id is in the list
+  const updated = await KGraph.findOneAndUpdate(
+    { user: ownerId },
+    { $pull: { nodes: { _id: { $in: convertedIds } } } },
+    { new: true }
+  ).exec();
+
+  if (!updated) {
+    throw new Error('Failed to delete nodes: user graph not found or write error');
+  }
+
+  // Also remove any edges that reference the deleted node ids (source/target stored as strings)
+  try {
+    const idStrings = convertedIds.map((i) => String(i));
+    await KGraph.updateOne(
+      { user: ownerId },
+      { $pull: { edges: { $or: [{ source: { $in: idStrings } }, { target: { $in: idStrings } }] } } }
+    ).exec();
+  } catch (e) {
+    // best-effort; log but don't fail the operation
+    console.error('[KGraph] failed removing edges referencing deleted nodes:', e?.message || e);
+  }
+
+  // Fire-and-forget: request the embed worker to delete corresponding vectors
+  try {
+    const idStrings = convertedIds.map((i) => String(i));
+    const userIdStr = String(ownerId);
+    setImmediate(async () => {
+      try {
+        const url = EMBED_URL.endsWith('/delete') ? EMBED_URL : `${EMBED_URL}/delete`;
+        await axios.post(url, { user_id: userIdStr, ids: idStrings }, { timeout: 15000 });
+      } catch (err) {
+        // log http error details if available
+        try {
+          if (err && err.response) {
+            console.error('[KGraph] embed delete failed', { status: err.response.status, data: err.response.data });
+          } else {
+            console.error('[KGraph] embed delete failed:', err?.message || err);
+          }
+        } catch (logErr) {
+          console.error('[KGraph] embed delete failed and logging failed:', logErr?.message || logErr);
+        }
+      }
+    });
+  } catch (e) {
+    console.error('[KGraph] failed scheduling embed delete call:', e?.message || e);
+  }
+
+  return updated;
+
+};
+
+const deleteEdges = async (userId, edgeId) => {
+  const ObjectId = mongoose.Types.ObjectId;
+  const ownerId = ObjectId(userId);
+  const ids = Array.isArray(edgeId) ? edgeId : [edgeId];
+  const converted = ids.map((id) => {
+    try {
+      return ObjectId(id);
+    } catch (e) {
+      return String(id);
+    }
+  });
+
+  const updated = await KGraph.findOneAndUpdate(
+    { user: ownerId },
+    { $pull: { edges: { _id: { $in: converted } } } },
+    { new: true }
+  ).exec();
+
+  if (!updated) {
+    throw new Error('Failed to delete edges: user graph not found or write error');
+  }
+
+  return updated;
+};
 module.exports = {
   KGraph,
   addNodeToUserGraph,
   getEntireGraph,
   updateKGraph,
-  deleteKGraph,
+  deleteUserKGraph,
+  deleteNodes,
+  deleteEdges,
 };
