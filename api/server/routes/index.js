@@ -26,6 +26,7 @@ const user = require('./user');
 const ask = require('./ask');
 const banner = require('./banner');
 const kgraphs = require('./kgraphs');
+const kgraphRouter = require('./kgraph');
 
 module.exports = {
   ask,
@@ -56,4 +57,5 @@ module.exports = {
   staticRoute,
   banner,
   kgraphs,
+  kgraphRouter,
 };
