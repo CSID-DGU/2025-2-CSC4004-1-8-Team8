@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const axios = require('axios');
-const kgraphSchema = require('~/models/schema/kgraph');
+const kgraphSchema = require('models/schema/kgraphSchema');
 
 const KGraph = mongoose.model('KGraph', kgraphSchema);
 
@@ -55,12 +55,15 @@ const addNodeToUserGraph = async (userId, newNodeData) => {
     const nodePayload = {
       id: added && (added.id || String(added._id || '')),
       content: added && typeof added.content === 'string' ? added.content : '',
-
     };
 
     setImmediate(async () => {
       try {
-        await axios.post(EMBED_URL, { user_id: userIdStr, nodes: [nodePayload] }, { timeout: 15000 });
+        await axios.post(
+          EMBED_URL,
+          { user_id: userIdStr, nodes: [nodePayload] },
+          { timeout: 15000 },
+        );
       } catch (err) {
         console.error('[KGraph] embed call failed for addNodeToUserGraph:', err?.message || err);
       } // TODO: 비정상 응답 처리 로직 필요
@@ -92,7 +95,6 @@ const deleteUserKGraph = async (id) => {
 };
 
 const deleteNodes = async (userId, nodeId) => {
-
   // nodeId can be a single id or an array of ids
   const ObjectId = mongoose.Types.ObjectId;
 
@@ -112,7 +114,7 @@ const deleteNodes = async (userId, nodeId) => {
   const updated = await KGraph.findOneAndUpdate(
     { user: ownerId },
     { $pull: { nodes: { _id: { $in: convertedIds } } } },
-    { new: true }
+    { new: true },
   ).exec();
 
   if (!updated) {
@@ -124,7 +126,9 @@ const deleteNodes = async (userId, nodeId) => {
     const idStrings = convertedIds.map((i) => String(i));
     await KGraph.updateOne(
       { user: ownerId },
-      { $pull: { edges: { $or: [{ source: { $in: idStrings } }, { target: { $in: idStrings } }] } } }
+      {
+        $pull: { edges: { $or: [{ source: { $in: idStrings } }, { target: { $in: idStrings } }] } },
+      },
     ).exec();
   } catch (e) {
     // best-effort; log but don't fail the operation
@@ -143,12 +147,18 @@ const deleteNodes = async (userId, nodeId) => {
         // log http error details if available
         try {
           if (err && err.response) {
-            console.error('[KGraph] embed delete failed', { status: err.response.status, data: err.response.data });
+            console.error('[KGraph] embed delete failed', {
+              status: err.response.status,
+              data: err.response.data,
+            });
           } else {
             console.error('[KGraph] embed delete failed:', err?.message || err);
           }
         } catch (logErr) {
-          console.error('[KGraph] embed delete failed and logging failed:', logErr?.message || logErr);
+          console.error(
+            '[KGraph] embed delete failed and logging failed:',
+            logErr?.message || logErr,
+          );
         }
       }
     });
@@ -157,7 +167,6 @@ const deleteNodes = async (userId, nodeId) => {
   }
 
   return updated;
-
 };
 
 const deleteEdges = async (userId, edgeId) => {
@@ -175,7 +184,7 @@ const deleteEdges = async (userId, edgeId) => {
   const updated = await KGraph.findOneAndUpdate(
     { user: ownerId },
     { $pull: { edges: { _id: { $in: converted } } } },
-    { new: true }
+    { new: true },
   ).exec();
 
   if (!updated) {

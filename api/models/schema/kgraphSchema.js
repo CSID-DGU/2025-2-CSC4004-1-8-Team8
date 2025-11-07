@@ -1,76 +1,69 @@
 const mongoose = require('mongoose');
-const { Schema } = mongoose;
 
-const nodeSchema = new Schema(
+// "캔버스에 등록된 지식 노드. Python 저장소의 실제 벡터를 참조하며, UMAP 연산으로 변환된 x,y 노드 좌표 저장."
+// Knowledge Node: A knowledge node registered on the canvas. It references the actual vector in the Python repository
+// and stores the x,y node coordinates transformed by the UMAP operation.
+const knowledgeNodeSchema = new mongoose.Schema(
   {
-    // label: Text content displayed on the node
-    label: {
+    content: {
       type: String,
       required: true,
-      default: '새 노드',
     },
-    // x, y: Positional coordinates for visualization
+    label: {
+      type: [String],
+      required: false,
+      default: [],
+    },
     x: {
       type: Number,
-      default: 0,
+      required: false,
+      default: null,
     },
     y: {
       type: Number,
-      default: 0,
+      required: false,
+      default: null, //TODO: kgraph에 message, conversation id 있어야 함
     },
-    idea_text: {
+    source_message_id: {
       type: String,
       required: false,
     },
-    vector_ref: {
+    source_conversation_id: {
       type: String,
       required: false,
     },
-    // Note: API spec 'id' will be served by MongoDB's default '_id'.
-    // Note: API spec 'updatedAt' is handled by 'timestamps: true'.
   },
   {
-    timestamps: true, // Automatically adds createdAt and updatedAt fields
-    _id: true, // Ensures MongoDB automatically generates a unique _id
-  },
-);
-
-/**
- * Edge Sub-document Schema
- * API Spec 1.1 (edges)
- * Defines the structure for connections (edges) between nodes.
- */
-const edgeSchema = new Schema(
-  {
-    // source: The _id of the starting node
-    source: {
-      type: String,
-      required: true,
-    },
-    // target: The _id of the ending node
-    target: {
-      type: String,
-      required: true,
-    },
-    // label: Description of the relationship.
-    // Defined as an array to support multiple labels between two nodes, per meeting.
-    label: {
-      type: [String],
-      default: [],
-    },
-    // Note: API spec 'id' will be served by MongoDB's default '_id'.
-  },
-  {
-    timestamps: true, // Automatically adds createdAt and updatedAt fields
+    timestamps: true,
     _id: true,
   },
 );
 
-/**
- * KGraph (Knowledge Graph) Main Schema
- * This is the parent document that holds all nodes and edges for a specific user.
- */
-const kgraphSchema = new Schema(
+// "노드 간의 관계. 엣지 벡터(Target -> Source) 및 관계의 유형을 저장."
+// Knowledge Edge: Relationship between nodes. Stores the edge vector (Target -> Source) and the type of relationship.
+const knowledgeEdgeSchema = new mongoose.Schema(
+  {
+    source: {
+      type: String,
+      required: true,
+    },
+    target: {
+      type: String,
+      required: true,
+    },
+    label: {
+      type: [String], // Type(s) of relationship
+      required: false,
+      default: [],
+    },
+  },
+  {
+    timestamps: true,
+    _id: true,
+  },
+);
+
+const kgraphSchema = new mongoose.Schema(
   {
     // Matches the 'userId' field in userSchema.js
     userId: {
@@ -79,20 +72,10 @@ const kgraphSchema = new Schema(
       unique: true, // Each user must have only one knowledge graph
       index: true, // Improves query performance when finding a user's graph
     },
-    // Embeds the nodes array using the nodeSchema
-    nodes: [nodeSchema],
-    // Embeds the edges array using the edgeSchema
-    edges: [edgeSchema],
+    nodes: [knowledgeNodeSchema],
+    edges: [knowledgeEdgeSchema],
   },
-  {
-    timestamps: true, // For tracking when the graph itself was created/updated
-  },
+  { timestamps: true },
 );
 
-// Export the schemas for use in Models
-// nodeSchema is exported separately for reuse in messageSchema.js
-module.exports = {
-  kgraphSchema,
-  nodeSchema,
-  edgeSchema,
-};
+module.exports = kgraphSchema;
