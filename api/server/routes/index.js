@@ -25,7 +25,7 @@ const keys = require('./keys');
 const user = require('./user');
 const ask = require('./ask');
 const banner = require('./banner');
-const kgraphRouter = require('./kgraph');
+const kgraphs = require('./kgraphs');
 
 module.exports = {
   ask,
@@ -55,5 +55,5 @@ module.exports = {
   categories,
   staticRoute,
   banner,
-  kgraphRouter,
+  kgraphs,
 };

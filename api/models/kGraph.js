@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 // kgraphSchema 객체를 직접 가져옵니다.
-const { kgraphSchema } = require('./schema/kgraphSchema');
+const { kgraphSchema } = require('./schema/kgraphSchema-removal');
 const { Message } = require('./Message'); // 2.3 API (가져오기)에 필요
 const logger = require('~/config/winston');
 
@@ -43,8 +43,8 @@ const getGraph = async (userId) => {
     const graph = await getOrCreateGraphDoc(userId);
 
     // Mongoose Sub-document의 _id를 id로 변환하여 프론트엔드에 전달
-    const nodes = graph.nodes.map(n => ({ ...n.toObject(), id: n._id.toString() }));
-    const edges = graph.edges.map(e => ({ ...e.toObject(), id: e._id.toString() }));
+    const nodes = graph.nodes.map((n) => ({ ...n.toObject(), id: n._id.toString() }));
+    const edges = graph.edges.map((e) => ({ ...e.toObject(), id: e._id.toString() }));
 
     return { nodes, edges };
   } catch (error) {
@@ -63,7 +63,7 @@ const getGraph = async (userId) => {
 const createNode = async (userId, { label, x, y, idea_text, vector_ref }) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
-    
+
     const newNode = {
       label: label || '새 노드',
       x: x || 0,
@@ -149,7 +149,7 @@ const importNodes = async (userId, { messageId }) => {
     const graph = await getOrCreateGraphDoc(userId);
 
     // tempNodes 구조가 nodeSchema와 호환된다고 가정 (필요시 변환)
-    const newNodes = message.tempNodes.map(tn => ({
+    const newNodes = message.tempNodes.map((tn) => ({
       label: tn.label || '새 노드',
       x: tn.x || 0,
       y: tn.y || 0,
@@ -159,15 +159,11 @@ const importNodes = async (userId, { messageId }) => {
     message.isImported = true; // 가져오기 완료 플래그 설정
 
     // 두 문서(그래프, 메시지)를 동시에 저장
-    await Promise.all([
-      graph.save(),
-      message.save()
-    ]);
+    await Promise.all([graph.save(), message.save()]);
 
     // 방금 추가된 노드들을 반환 (ID 포함)
     const addedNodes = graph.nodes.slice(-newNodes.length);
-    return addedNodes.map(n => ({ ...n.toObject(), id: n._id.toString() }));
-
+    return addedNodes.map((n) => ({ ...n.toObject(), id: n._id.toString() }));
   } catch (error) {
     logger.error(`[KGraph] Error in importNodes (userId: ${userId}, msgId: ${messageId})`, error);
     throw new Error(`노드 가져오기 실패: ${error.message}`);
@@ -191,16 +187,13 @@ const deleteNodes = async (userId, { nodeIds }) => {
 
     // 1. 이 노드들과 연결된 모든 엣지를 제거
     graph.edges.pull({
-      $or: [
-        { source: { $in: nodeIds } },
-        { target: { $in: nodeIds } }
-      ]
+      $or: [{ source: { $in: nodeIds } }, { target: { $in: nodeIds } }],
     });
 
     // 2. 노드들을 제거
-   nodeIds.forEach(nodeId => {
+    nodeIds.forEach((nodeId) => {
       graph.nodes.pull(nodeId);
-    })
+    });
 
     await graph.save();
     return { deletedNodes: nodeIds.length };
@@ -222,7 +215,7 @@ const createEdge = async (userId, { source, target, label }) => {
     const graph = await getOrCreateGraphDoc(userId);
 
     // 엣지는 source와 target 쌍으로 고유함
-    let edge = graph.edges.find(e => e.source === source && e.target === target);
+    let edge = graph.edges.find((e) => e.source === source && e.target === target);
 
     if (edge) {
       // 엣지가 이미 존재하면, 새 라벨을 (중복이 아닐 경우) 추가
@@ -258,7 +251,7 @@ const createEdge = async (userId, { source, target, label }) => {
 const updateEdge = async (userId, { source, target, label }) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
-    const edge = graph.edges.find(e => e.source === source && e.target === target);
+    const edge = graph.edges.find((e) => e.source === source && e.target === target);
 
     if (!edge) {
       throw new Error('수정할 엣지를 찾을 수 없습니다.');
@@ -291,7 +284,7 @@ const updateEdge = async (userId, { source, target, label }) => {
 const deleteEdge = async (userId, { source, target }) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
-    const edge = graph.edges.find(e => e.source === source && e.target === target);
+    const edge = graph.edges.find((e) => e.source === source && e.target === target);
 
     if (!edge) {
       throw new Error('삭제할 엣지를 찾을 수 없습니다.');

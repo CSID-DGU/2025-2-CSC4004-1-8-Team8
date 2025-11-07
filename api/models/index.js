@@ -28,6 +28,13 @@ const {
 const { getConvoTitle, getConvo, saveConvo, deleteConvos } = require('./Conversation');
 const { getPreset, getPresets, savePreset, deletePresets } = require('./Preset');
 const { createToken, findToken, updateToken, deleteTokens } = require('./Token');
+const {
+  Kgraph,
+  getKGraph,
+  getKGraphs,
+  updateKGraph,
+  deleteKGraph,
+} = require('./Kgraph');
 const Session = require('./Session');
 const Balance = require('./Balance');
 const User = require('./User');
@@ -73,6 +80,12 @@ module.exports = {
   findToken,
   updateToken,
   deleteTokens,
+
+  Kgraph,
+  getKGraph,
+  getKGraphs,
+  updateKGraph,
+  deleteKGraph,
 
   User,
   Key,
