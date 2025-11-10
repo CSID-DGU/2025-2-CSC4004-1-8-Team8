@@ -92,7 +92,7 @@ const startServer = async () => {
   app.use('/api/messages', routes.messages);
   app.use('/api/convos', routes.convos);
   app.use('/api/presets', routes.presets);
-  app.use('/api/kgraphs', routes.kgraphRouter);
+  //app.use('/api/kgraphs', routes.kgraphRouter);
   app.use('/api/prompts', routes.prompts);
   app.use('/api/categories', routes.categories);
   app.use('/api/tokenizer', routes.tokenizer);
@@ -111,7 +111,7 @@ const startServer = async () => {
   app.use('/api/bedrock', routes.bedrock);
   app.use('/api/kgraphs', routes.kgraphs);
   app.use('/api/tags', routes.tags);
-  app.use('/api/kgraphs', routes.kgraphRouter);
+  //app.use('/api/kgraphs', routes.kgraphRouter);
 
   app.use((req, res) => {
     // Replace lang attribute in index.html with lang from cookies or accept-language header

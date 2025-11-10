@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const mongoMeili = require('~/models/plugins/mongoMeili');
-const { nodeSchema } = require('./kgraphSchema-removal');
+const { knowledgeNodeSchema } = require('./kgraphSchema');
 const messageSchema = mongoose.Schema(
   {
     messageId: {
@@ -57,12 +57,12 @@ const messageSchema = mongoose.Schema(
     },
     nodes: {
       type: [{
-        nodeSchema,
+        ...knowledgeNodeSchema.obj, // <-- 2. 올바른 스키마 적용 (Mongoose Sub-document 방식)
         isCurated: {
           type: Boolean,
           default : false,
         },
-      }], // 또는 [nodeSchema] (만약 노드 스키마를 정의했다면)
+      }],
       default: [],
     },
     isImported: {
