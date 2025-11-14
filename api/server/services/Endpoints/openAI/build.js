@@ -1,5 +1,6 @@
 const { removeNullishValues } = require('librechat-data-provider');
 const generateArtifactsPrompt = require('~/app/clients/prompts/artifacts');
+const { atomicIdeasJsonSchema } = require('~/app/clients/prompts');
 
 const buildOptions = (endpoint, parsedBody) => {
   const {
@@ -16,9 +17,10 @@ const buildOptions = (endpoint, parsedBody) => {
     ...modelOptions
   } = parsedBody;
 
-  // Add this block to enable structured output for specific models
-  if (modelOptions.model && modelOptions.model.includes('gpt-4')) {
-    modelOptions.response_format = { type: 'json_object' };
+  // Use Structured Outputs (json_schema) instead of json_object
+  // This provides better validation and doesn't require "json" in messages
+  if (modelOptions.model && modelOptions.model.includes('gpt')) {
+    modelOptions.response_format = atomicIdeasJsonSchema;
   }
 
   const endpointOption = removeNullishValues({

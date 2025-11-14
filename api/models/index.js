@@ -76,11 +76,11 @@ module.exports = {
   deleteTokens,
 
   // Kgraph (대문자) 관련 export 모두 삭제
-  
+
   User,
   Key,
   Session,
   Balance,
-KGraph: kGraphModule.KGraph, // 다른 라우터가 KGraph 모델을 찾을 수 있도록 함
+  KGraph: kGraphModule.KGraph, // 다른 라우터가 KGraph 모델을 찾을 수 있도록 함
   kGraph: kGraphModule,
 };
