@@ -18,24 +18,13 @@ async def recommend_least_similar(
     sample_size: int = 100,
 ) -> List[Dict[str, Any]]:
     """Return `top_k` nodes that are least similar to the given node.
-
-    Strategy:
-    - Fetch the embedding for `node_id`.
-    - Retrieve a (random) sample of other ids from the collection (size `sample_size`).
-    - Fetch embeddings for that sample and compute cosine similarity to the query embedding.
-    - Return the `top_k` ids with the lowest similarity (i.e., most dissimilar).
-
-    Note: For very large collections, sampling avoids loading all embeddings into memory.
     """
     if not node_id:
         raise HTTPException(status_code=400, detail="node_id is required for least-similar recommendation")
 
     try:
-        try:
-            await chroma_client.set_tenant(user_id)
-        except Exception:
-            # best-effort; some clients may not support tenant
-            pass
+        from utils.tenant_utils import ensure_tenant_exists_and_set
+        await ensure_tenant_exists_and_set(chroma_client, admin_client, user_id)
 
         COLLECTION_NAME = os.environ.get("CHROMA_COLLECTION", "librechat_chroma")
         coll = await chroma_client.get_collection(COLLECTION_NAME)
@@ -43,13 +32,14 @@ async def recommend_least_similar(
         # 1) get query embedding
         data = await coll.get(ids=[node_id], include=["embeddings"])
         embs = data.get("embeddings", []) if data else []
-        if not embs or not embs[0]:
+        if len(embs) == 0 or embs[0] is None or len(embs[0]) == 0:
             raise HTTPException(status_code=404, detail="Embedding for node_id not found")
         query_emb = np.array(embs[0], dtype=np.float32)
 
         # 2) get all ids (or rely on get to return ids list)
-        # fetch only ids (GetResult -> {'ids': [...]}); extract ids directly for simplicity
-        all_ids = await coll.get(include=["ids"])['ids']
+        # ids are always returned by default, no need to include in 'include' parameter
+        all_data = await coll.get()
+        all_ids = all_data.get("ids", []) if all_data else []
 
         # remove the query id
         pool_ids = [str(i) for i in (all_ids or []) if str(i) != str(node_id)]
@@ -63,7 +53,8 @@ async def recommend_least_similar(
             sampled = random.sample(pool_ids, sample_size)
 
         # 4) fetch ids and embeddings for sampled ids
-        samples = await coll.get(ids=sampled, include=["ids", "embeddings"])
+        # ids are always returned by default
+        samples = await coll.get(ids=sampled, include=["embeddings"])
         sample_ids = samples.get("ids", []) if samples else []
         sample_embs = samples.get("embeddings", []) if samples else []
 
@@ -78,24 +69,23 @@ async def recommend_least_similar(
             # if embeddings malformed, bail out
             return []
 
-        # stable L2 normalization (avoid divide-by-zero)
+        # 코사인 유사도 계산
         norms = np.linalg.norm(arr, axis=1, keepdims=True)
         arr_norm = arr / np.maximum(norms, 1e-8)
 
         q = np.asarray(query_emb, dtype=np.float32).ravel()
         q_norm_val = np.linalg.norm(q)
         q_norm = q / max(q_norm_val, 1e-8)
-
-        # cosine similarity via matrix-vector product (fast and memory efficient)
-        sims = arr_norm @ q_norm
+        
+        similarity = arr_norm @ q_norm
 
         # get indices of smallest similarities (most dissimilar)
-        k = min(top_k, sims.shape[0])
-        worst_idx = list(np.argsort(sims)[:k])
+        k = min(top_k, similarity.shape[0])
+        worst_idx = list(np.argsort(similarity)[:k])
 
         recommendations: List[Dict[str, Any]] = []
         for idx in worst_idx:
-            recommendations.append({"id": str(sample_ids[idx]), "score": float(sims[idx])})
+            recommendations.append({"id": str(sample_ids[idx]), "score": float(similarity[idx])})
 
         return recommendations
 
