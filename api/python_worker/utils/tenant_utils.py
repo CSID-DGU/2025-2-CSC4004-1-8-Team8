@@ -16,14 +16,13 @@ def get_or_create_tenant_for_user(user_id: str, admin_client) -> Tuple[str, str]
 
     Returns (tenant_id, database_name).
     """
-    tenant_id = f"tenant_user:{user_id}"
     try:
-        admin_client.get_tenant(tenant_id)
+        admin_client.get_tenant(user_id)
     except Exception:
         # tenant missing -> create tenant and default database
-        admin_client.create_tenant(tenant_id)
-        admin_client.create_database(DEFAULT_DATABASE, tenant_id)
-    return tenant_id, DEFAULT_DATABASE
+        admin_client.create_tenant(user_id)
+        admin_client.create_database(DEFAULT_DATABASE, user_id)
+    return user_id, DEFAULT_DATABASE
 
 
 async def ensure_tenant_exists_and_set(chroma_client, admin_client: Optional[object], user_id: str):
@@ -35,10 +34,10 @@ async def ensure_tenant_exists_and_set(chroma_client, admin_client: Optional[obj
     """
     try:
         # Try the common case: tenant already exists and can be set directly
-        await chroma_client.set_tenant(f"tenant_user:{user_id}")
+        await chroma_client.set_tenant(user_id)
         return
     except Exception as e:
-        logger.info("Tenant tenant_user:%s does not exist or cannot be set: %s", user_id, e)
+        logger.info("Tenant %s does not exist or cannot be set: %s", user_id, e)
 
     if admin_client is None:
         logger.error("AdminClient not available to create tenant for user %s", user_id)

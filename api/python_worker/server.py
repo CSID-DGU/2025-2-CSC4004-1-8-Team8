@@ -127,10 +127,12 @@ app = FastAPI(title="LibreChat Embedding Server", lifespan=lifespan)
 from routes.health import router as health_router
 from routes.embed import router as embed_router
 from routes.umap import router as umap_router
+from routes.recommendation import router as recommendation_router
 
 app.include_router(health_router)
 app.include_router(embed_router)
 app.include_router(umap_router)
+app.include_router(recommendation_router)
 
 
 if __name__ == "__main__":
