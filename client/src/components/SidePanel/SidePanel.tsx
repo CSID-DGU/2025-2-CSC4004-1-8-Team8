@@ -59,7 +59,7 @@ const SidePanel = ({
   const [isHovering, setIsHovering] = useState(false);
   const [minSize, setMinSize] = useState(defaultMinSize);
   const [newUser, setNewUser] = useLocalStorage('newUser', true);
-  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [fullCollapse, setFullCollapse] = useState(fullPanelCollapse);
   const [collapsedSize, setCollapsedSize] = useState(navCollapsedSize);
   const { data: endpointsConfig = {} as TEndpointsConfig } = useGetEndpointsQuery();
@@ -78,8 +78,15 @@ const SidePanel = ({
 
   const defaultActive = useMemo(() => {
     const activePanel = localStorage.getItem('side:active-panel');
-    return typeof activePanel === 'string' ? activePanel : undefined;
-  }, []);
+    if (typeof activePanel === 'string') {
+      return activePanel;
+    }
+    // Fallback to knowledge graph on first load when enabled
+    if ((interfaceConfig as any)?.knowledgeGraph === true) {
+      return 'knowledge-graph';
+    }
+    return undefined;
+  }, [interfaceConfig]);
 
   const endpointType = useMemo(
     () => getEndpointField(endpointsConfig, endpoint, 'type'),
@@ -96,7 +103,7 @@ const SidePanel = ({
     () => (userProvidesKey ? !!(keyExpiry.expiresAt ?? '') : true),
     [keyExpiry.expiresAt, userProvidesKey],
   );
-
+/*
   const hidePanel = useCallback(() => {
     setIsCollapsed(true);
     setCollapsedSize(0);
@@ -105,11 +112,11 @@ const SidePanel = ({
     localStorage.setItem('fullPanelCollapse', 'true');
     panelRef.current?.collapse();
   }, []);
-
+*/
   const Links = useSideNavLinks({
     agents,
     endpoint,
-    hidePanel,
+    //hidePanel,
     assistants,
     keyProvided,
     endpointType,
@@ -150,9 +157,11 @@ const SidePanel = ({
       panelRef.current?.collapse();
       return;
     } else {
-      setIsCollapsed(defaultCollapsed);
-      setCollapsedSize(navCollapsedSize);
-      setMinSize(defaultMinSize);
+     setIsCollapsed(false); 
+      setCollapsedSize(navCollapsedSize);
+      setMinSize(defaultMinSize); 
+      setFullCollapse(false); 
+      localStorage.setItem('fullPanelCollapse', 'false'); 
     }
   }, [isSmallScreen, defaultCollapsed, navCollapsedSize, fullPanelCollapse]);
 
@@ -211,7 +220,7 @@ const SidePanel = ({
           onMouseLeave={() => setIsHovering(false)}
           className="relative flex w-px items-center justify-center"
         >
-          <NavToggle
+          {/*<NavToggle
             navVisible={!isCollapsed}
             isHovering={isHovering}
             onToggle={toggleNavVisible}
@@ -225,6 +234,7 @@ const SidePanel = ({
             translateX={false}
             side="right"
           />
+          */}
         </div>
         {(!isCollapsed || minSize > 0) && !isSmallScreen && !fullCollapse && (
           <ResizableHandleAlt withHandle className="bg-transparent dark:text-white" />
@@ -245,6 +255,7 @@ const SidePanel = ({
             overflowY: 'auto',
             transition: 'width 0.2s ease, visibility 0s linear 0.2s',
           }}
+          /*
           onExpand={() => {
             setIsCollapsed(false);
             localStorage.setItem('react-resizable-panels:collapsed', 'false');
@@ -253,15 +264,16 @@ const SidePanel = ({
             setIsCollapsed(true);
             localStorage.setItem('react-resizable-panels:collapsed', 'true');
           }}
+          */
           className={cn(
             'sidenav hide-scrollbar border-l border-border-light bg-background transition-opacity',
             isCollapsed ? 'min-w-[50px]' : 'min-w-[340px] sm:min-w-[352px]',
-            (isSmallScreen && isCollapsed && (minSize === 0 || collapsedSize === 0)) || fullCollapse
+            /*(isSmallScreen && isCollapsed && (minSize === 0 || collapsedSize === 0)) || fullCollapse
               ? 'hidden min-w-0'
-              : 'opacity-100',
+              : 'opacity-100',*/
           )}
         >
-          {interfaceConfig.modelSelect && (
+          {false && interfaceConfig.modelSelect && (
             <div
               className={cn(
                 'sticky left-0 right-0 top-0 z-[100] flex h-[52px] flex-wrap items-center justify-center bg-background',
@@ -283,6 +295,7 @@ const SidePanel = ({
           />
         </ResizablePanel>
       </ResizablePanelGroup>
+      {/*
       <button
         aria-label="Close right side panel"
         className={`nav-mask ${!isCollapsed ? 'active' : ''}`}
@@ -297,6 +310,7 @@ const SidePanel = ({
           panelRef.current?.collapse();
         }}
       />
+      */}
     </>
   );
 };

@@ -29,7 +29,7 @@ const FilePreview = ({
     transition: 'stroke-dashoffset 0.5s linear',
   };
 
-  return (
+  return null; /*(
     <div className={cn('h-10 w-10 shrink-0 overflow-hidden rounded-md', className)}>
       <FileIcon file={file} fileType={fileType} />
       <SourceIcon source={file?.source} />
@@ -41,7 +41,7 @@ const FilePreview = ({
         />
       )}
     </div>
-  );
+  );*/
 };
 
 export default FilePreview;
