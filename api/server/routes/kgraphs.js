@@ -164,24 +164,4 @@ router.post('/umap', requireJwtAuth, async (req, res) => {
   }
 });
 
-/**
- * (API 4.2) POST /api/kgraphs/cluster
- * UMAP 군집 시각화 요청
- * Description: 사용자의 요청에 따라 백엔드에서 노드 벡터를 기반으로 UMAP 재계산을 수행하고,
- * 변경된 노드 좌표(x, y)를 반환합니다.
- */
-router.post('/cluster', requireJwtAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    // calculateCluster 함수 호출: Python UMAP 서비스에 요청하여 좌표 계산
-    const clusterData = await KGraph.calculateCluster(userId);
-    // Success Response: 업데이트된 노드 ID와 좌표 목록 반환
-    // [{ id: "node_id_1", x: 55.0, y: 10.0 }, ...]
-    res.status(200).json(clusterData);
-  } catch (error) {
-    logger.error(`[kgraph.js] /cluster POST Error: ${error.message}`);
-    res.status(500).json({ message: 'UMAP 군집 시각화 계산에 실패했습니다.' });
-  }
-});
-
 module.exports = router;

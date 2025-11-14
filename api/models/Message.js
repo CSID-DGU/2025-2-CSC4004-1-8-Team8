@@ -29,10 +29,9 @@ const idSchema = z.string().uuid();
  * @param {string} [params.plugin] - Plugin associated with the message.
  * @param {string[]} [params.plugins] - An array of plugins associated with the message.
  * @param {string} [params.model] - The model used to generate the message.
- * @param {Array<{content: string}>} [params.atomic_ideas] - 아이디어 노드 배열 (messageSchema.nodes에 저장됨)
  * @param {Object} [metadata] - Additional metadata for this operation
  * @param {string} [metadata.context] - The context of the operation
-* @returns {Promise<TMessage>} The updated or newly inserted message document.
+ * @returns {Promise<TMessage>} The updated or newly inserted message document.
  * @throws {Error} If there is an error in saving the message.
  */
 async function saveMessage(req, params, metadata) {
@@ -49,46 +48,11 @@ async function saveMessage(req, params, metadata) {
   }
 
   try {
-    // Clean up params to remove undefined and null values that might cause schema issues
-    const cleanedParams = Object.entries(params).reduce((acc, [key, value]) => {
-      if (value !== undefined && value !== null && key !== 'atomic_ideas') {
-        acc[key] = value;
-      }
-      return acc;
-    }, {});
-
     const update = {
-      ...cleanedParams,
+      ...params,
       user: req.user.id,
       messageId: params.newMessageId || params.messageId,
     };
-
-    // Convert atomic_ideas to nodes format if present
-    if (params.atomic_ideas && Array.isArray(params.atomic_ideas)) {
-      try {
-        update.nodes = params.atomic_ideas.map((idea) => {
-          if (typeof idea === 'object' && idea !== null && 'content' in idea) {
-            return {
-              content: idea.content,
-              isCurated: false,
-            };
-          }
-          // If idea is a string, wrap it
-          return {
-            content: String(idea),
-            isCurated: false,
-          };
-        });
-        logger.debug('[saveMessage] Converted atomic_ideas to nodes:', {
-          count: update.nodes.length,
-        });
-      } catch (conversionErr) {
-        logger.error('[saveMessage] Error converting atomic_ideas to nodes:', conversionErr);
-        logger.warn('[saveMessage] atomic_ideas structure:', params.atomic_ideas);
-        // Continue without nodes if conversion fails
-      }
-    }
-
     const message = await Message.findOneAndUpdate(
       { messageId: params.messageId, user: req.user.id },
       update,
@@ -99,11 +63,6 @@ async function saveMessage(req, params, metadata) {
   } catch (err) {
     logger.error('Error saving message:', err);
     logger.info(`---\`saveMessage\` context: ${metadata?.context}`);
-    logger.warn('[saveMessage] Failed update params:', {
-      messageId: params.messageId,
-      hasAtomicIdeas: !!params.atomic_ideas,
-      atomicIdeasLength: params.atomic_ideas?.length,
-    });
     throw err;
   }
 }

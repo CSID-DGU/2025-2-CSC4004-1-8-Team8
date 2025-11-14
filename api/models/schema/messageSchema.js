@@ -55,18 +55,16 @@ const messageSchema = mongoose.Schema(
       type: String,
       meiliIndex: true,
     },
-    nodes: [
-      new mongoose.Schema(
-        {
-          ...knowledgeNodeSchema.obj,
-          isCurated: {
-            type: Boolean,
-            default: false,
-          },
+    nodes: {
+      type: [{
+        ...knowledgeNodeSchema.obj, // <-- 2. 올바른 스키마 적용 (Mongoose Sub-document 방식)
+        isCurated: {
+          type: Boolean,
+          default : false,
         },
-        { _id: true, timestamps: true }
-      ),
-    ],
+      }],
+      default: [],
+    },
     isImported: {
       type: Boolean,
       default: false,

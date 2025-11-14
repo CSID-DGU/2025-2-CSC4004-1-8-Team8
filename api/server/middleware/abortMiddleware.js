@@ -119,20 +119,11 @@ const createAbortController = (req, res, getAbortData, getReqData) => {
       { promptTokens, completionTokens },
     );
 
-    try {
-      await saveMessage(
-        req,
-        { ...responseMessage, user },
-        { context: 'api/server/middleware/abortMiddleware.js' },
-      );
-    } catch (saveErr) {
-      logger.error('[abortMiddleware] Error saving response message:', saveErr);
-      logger.warn('[abortMiddleware] Failed to save message:', {
-        messageId: responseMessage.messageId,
-        conversationId: responseMessage.conversationId,
-      });
-      // Continue without throwing to allow abort completion to proceed
-    }
+    saveMessage(
+      req,
+      { ...responseMessage, user },
+      { context: 'api/server/middleware/abortMiddleware.js' },
+    );
 
     let conversation;
     if (userMessagePromise) {
