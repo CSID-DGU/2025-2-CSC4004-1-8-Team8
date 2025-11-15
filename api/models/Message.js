@@ -95,7 +95,17 @@ async function saveMessage(req, params, metadata) {
       { upsert: true, new: true },
     );
 
-    return message.toObject();
+    const messageObj = message.toObject();
+    
+    // Map MongoDB _id to id field for nodes
+    if (messageObj.nodes && Array.isArray(messageObj.nodes)) {
+      messageObj.nodes = messageObj.nodes.map((node) => ({
+        ...node,
+        id: node._id ? node._id.toString() : undefined,
+      }));
+    }
+
+    return messageObj;
   } catch (err) {
     logger.error('Error saving message:', err);
     logger.info(`---\`saveMessage\` context: ${metadata?.context}`);
@@ -293,11 +303,23 @@ async function deleteMessagesSince(req, { messageId, conversationId }) {
  */
 async function getMessages(filter, select) {
   try {
+    let messages;
     if (select) {
-      return await Message.find(filter).select(select).sort({ createdAt: 1 }).lean();
+      messages = await Message.find(filter).select(select).sort({ createdAt: 1 }).lean();
+    } else {
+      messages = await Message.find(filter).sort({ createdAt: 1 }).lean();
     }
 
-    return await Message.find(filter).sort({ createdAt: 1 }).lean();
+    // Map MongoDB _id to id field for nodes in each message
+    return messages.map((message) => {
+      if (message.nodes && Array.isArray(message.nodes)) {
+        message.nodes = message.nodes.map((node) => ({
+          ...node,
+          id: node._id ? node._id.toString() : undefined,
+        }));
+      }
+      return message;
+    });
   } catch (err) {
     logger.error('Error getting messages:', err);
     throw err;
