@@ -50,6 +50,7 @@ class EdgeMetadata(BaseModel):
     type: Literal["edge"] = "edge"
     source_id: str
     target_id: str
+    label: str
 
 
 DocumentMetadata = Union[NodeMetadata, EdgeMetadata]
@@ -102,8 +103,8 @@ def make_edge_record(
     compute this prior to creating the record if you have node embeddings.
     """
 
-    # do not include label in metadata; keep it as the document field
-    meta = EdgeMetadata(source_id=source_id, target_id=target_id)
+    # label is stored in metadata for easy querying
+    meta = EdgeMetadata(source_id=source_id, target_id=target_id, label=label)
     return DocumentRecord(id=id, embedding=embedding, metadata=meta, document=label)
 
 

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const mongoMeili = require('~/models/plugins/mongoMeili');
-const { nodeSchema } = require('./kgraphSchema-removal');
+const { knowledgeNodeSchema } = require('./kgraphSchema');
 const messageSchema = mongoose.Schema(
   {
     messageId: {
@@ -55,16 +55,18 @@ const messageSchema = mongoose.Schema(
       type: String,
       meiliIndex: true,
     },
-    nodes: {
-      type: [{
-        nodeSchema,
-        isCurated: {
-          type: Boolean,
-          default : false,
+    nodes: [
+      new mongoose.Schema(
+        {
+          ...knowledgeNodeSchema.obj,
+          isCurated: {
+            type: Boolean,
+            default: false,
+          },
         },
-      }], // 또는 [nodeSchema] (만약 노드 스키마를 정의했다면)
-      default: [],
-    },
+        { _id: true, timestamps: true }
+      ),
+    ],
     isImported: {
       type: Boolean,
       default: false,

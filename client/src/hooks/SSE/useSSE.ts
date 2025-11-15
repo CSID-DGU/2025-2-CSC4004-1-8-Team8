@@ -108,6 +108,35 @@ export default function useSSE(
       }
     };
 
+    /**
+     * Handle atomic ideas sent as a separate SSE event
+     * These are decomposed concepts from the response, sent after streaming completes
+     */
+    events.onatomic_ideas = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        console.log('Atomic ideas received:', data.atomic_ideas);
+        
+        // You can handle atomic_ideas here:
+        // - Save to state management (Redux/Recoil)
+        // - Display in a sidebar/panel
+        // - Store for later reference
+        // - Send to AI for follow-up processing
+        
+        // Example: Log for now, can be enhanced later
+        if (data.atomic_ideas && Array.isArray(data.atomic_ideas)) {
+          console.debug(
+            '[SSE] Received',
+            data.atomic_ideas.length,
+            'atomic ideas for message',
+            data.messageId,
+          );
+        }
+      } catch (error) {
+        console.error('[SSE] Error parsing atomic_ideas:', error);
+      }
+    };
+
     events.onmessage = (e: MessageEvent) => {
       const data = JSON.parse(e.data);
 

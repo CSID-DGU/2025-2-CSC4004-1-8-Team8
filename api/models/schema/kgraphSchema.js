@@ -79,3 +79,4 @@ const kgraphSchema = new mongoose.Schema(
 );
 
 module.exports = kgraphSchema;
+module.exports.knowledgeNodeSchema = knowledgeNodeSchema;

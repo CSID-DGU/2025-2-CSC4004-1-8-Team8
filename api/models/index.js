@@ -28,18 +28,12 @@ const {
 const { getConvoTitle, getConvo, saveConvo, deleteConvos } = require('./Conversation');
 const { getPreset, getPresets, savePreset, deletePresets } = require('./Preset');
 const { createToken, findToken, updateToken, deleteTokens } = require('./Token');
-const {
-  Kgraph,
-  getKGraph,
-  getKGraphs,
-  updateKGraph,
-  deleteKGraph,
-} = require('./Kgraph');
 const Session = require('./Session');
 const Balance = require('./Balance');
 const User = require('./User');
 const Key = require('./Key');
-const kGraph = require('./kGraph');
+// 수정 후 (kGraph.js에서 export된 모든 것을 kGraphModule로 가져옴)
+const kGraphModule = require('./kGraph'); // { KGraph, getGraph, ... }
 
 module.exports = {
   comparePassword,
@@ -81,15 +75,12 @@ module.exports = {
   updateToken,
   deleteTokens,
 
-  Kgraph,
-  getKGraph,
-  getKGraphs,
-  updateKGraph,
-  deleteKGraph,
+  // Kgraph (대문자) 관련 export 모두 삭제
 
   User,
   Key,
   Session,
   Balance,
-  kGraph,
+  KGraph: kGraphModule.KGraph, // 다른 라우터가 KGraph 모델을 찾을 수 있도록 함
+  kGraph: kGraphModule,
 };

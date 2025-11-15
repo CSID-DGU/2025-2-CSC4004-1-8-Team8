@@ -130,6 +130,9 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
     let response = await client.sendMessage(text, messageOptions);
     response.endpoint = endpointOption.endpoint;
 
+    // Extract atomic_ideas if present (BaseClient에서 이미 처리됨)
+    const atomicIdeas = response.atomic_ideas;
+
     const { conversation = {} } = await client.responsePromise;
     conversation.title =
       conversation && !conversation.title ? null : conversation?.title || 'New Chat';
@@ -148,11 +151,20 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
         requestMessage: userMessage,
         responseMessage: response,
       });
+
+      // Send atomic_ideas as a separate SSE event if available
+      if (atomicIdeas) {
+        sendMessage(res, atomicIdeas, 'atomic_ideas', response.messageId);
+      }
+
       res.end();
 
+      // Extract atomic_ideas before saving to separate concerns
+      const { atomic_ideas, ...messageData } = response;
+      
       await saveMessage(
         req,
-        { ...response, user },
+        { ...messageData, atomic_ideas, user },
         { context: 'api/server/controllers/AskController.js - response end' },
       );
     }
