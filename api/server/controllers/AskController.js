@@ -141,13 +141,10 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
     }
 
     if (!abortController.signal.aborted) {
-      // Extract atomic_ideas before saving to separate concerns
-      const { atomic_ideas, ...messageData } = response;
-
       // Save to DB and get the saved message with nodes (including _id)
       const savedMessage = await saveMessage(
         req,
-        { ...messageData, atomic_ideas, user },
+        { ...response, user },
         { context: 'api/server/controllers/AskController.js - response end' },
       );
 
