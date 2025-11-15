@@ -130,9 +130,6 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
     let response = await client.sendMessage(text, messageOptions);
     response.endpoint = endpointOption.endpoint;
 
-    // Extract atomic_ideas if present (BaseClient에서 이미 처리됨)
-    const atomicIdeas = response.atomic_ideas;
-
     const { conversation = {} } = await client.responsePromise;
     conversation.title =
       conversation && !conversation.title ? null : conversation?.title || 'New Chat';
@@ -144,29 +141,30 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
     }
 
     if (!abortController.signal.aborted) {
+      // Extract atomic_ideas before saving to separate concerns
+      const { atomic_ideas, ...messageData } = response;
+
+      // Save to DB and get the saved message with nodes (including _id)
+      const savedMessage = await saveMessage(
+        req,
+        { ...messageData, atomic_ideas, user },
+        { context: 'api/server/controllers/AskController.js - response end' },
+      );
+
+      // Send final response with messageId and nodes from saved message
       sendMessage(res, {
         final: true,
         conversation,
         title: conversation.title,
         requestMessage: userMessage,
-        responseMessage: response,
+        responseMessage: {
+          ...response,
+          messageId: savedMessage?.messageId || responseMessageId,
+          nodes: savedMessage?.nodes || [],
+        },
       });
 
-      // Send atomic_ideas as a separate SSE event if available
-      if (atomicIdeas) {
-        sendMessage(res, atomicIdeas, 'atomic_ideas', response.messageId);
-      }
-
       res.end();
-
-      // Extract atomic_ideas before saving to separate concerns
-      const { atomic_ideas, ...messageData } = response;
-      
-      await saveMessage(
-        req,
-        { ...messageData, atomic_ideas, user },
-        { context: 'api/server/controllers/AskController.js - response end' },
-      );
     }
 
     if (!client.skipSaveUserMessage) {
