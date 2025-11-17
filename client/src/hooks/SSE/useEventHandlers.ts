@@ -382,16 +382,19 @@ export default function useEventHandlers({
       if (responseMessage && typeof responseMessage === 'object' && 'nodes' in responseMessage) {
         const nodesValue = (responseMessage as { nodes?: TKnowledgeNode[] }).nodes;
         if (Array.isArray(nodesValue) && nodesValue.length > 0) {
+          // Deep copy nodes data to preserve in console (avoid reference updates)
+          const nodesCopy = nodesValue.map((node) => ({
+            id: node.id,
+            content: node.content,
+            isCurated: node.isCurated,
+            createdAt: node.createdAt,
+          }));
           console.log('🧠 [finalHandler] Nodes extracted from responseMessage:', {
             messageId: responseMessage.messageId,
             count: nodesValue.length,
-            nodes: nodesValue.map((node) => ({
-              id: node.id,
-              content: node.content,
-              isCurated: node.isCurated,
-              createdAt: node.createdAt,
-            })),
+            nodes: nodesCopy,
           });
+          console.table(nodesCopy);
         }
       }
 
