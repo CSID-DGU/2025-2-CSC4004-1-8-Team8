@@ -1,7 +1,5 @@
+import { request } from 'librechat-data-provider';
 import type { GraphNode, GraphEdge } from '~/store/knowledgeGraph';
-
-const API_BASE = (import.meta as any).env?.VITE_API_BASE ?? '';
-const api = (path: string) => `${API_BASE.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
 
 export type CreateNodePayload = {
   label: string | string[];
@@ -24,10 +22,6 @@ export type CreateEdgePayload = {
 type GraphResponse = {
   nodes?: any[];
   edges?: any[];
-};
-
-const jsonHeaders = {
-  'Content-Type': 'application/json',
 };
 
 const ensureArray = (value: unknown): string[] => {
@@ -57,71 +51,27 @@ const normalizeEdge = (edge: any): GraphEdge => ({
   labels: ensureArray(edge?.labels ?? edge?.label),
 });
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    credentials: 'include',
-    ...init,
-    headers: { ...(init?.headers || {}), 'Content-Type': 'application/json' },
-  });
-
-  const text = await res.text();
-
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const data = JSON.parse(text);
-      if (data?.message) message = data.message;
-    } catch (_) {
-      // keep default message
-    }
-    throw new Error(message || 'Request failed');
-  }
-
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  try {
-    return JSON.parse(text) as T;
-  } catch (err) {
-    // Surface unexpected HTML/redirect bodies for debugging
-    throw new Error(`Invalid JSON response: ${text.slice(0, 200)}`);
-  }
-}
-
 export async function fetchKnowledgeGraph(): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
-  const data = await request<GraphResponse>(api('/api/kgraphs'));
+  const data = await request.get('/api/kgraphs');
   return {
-    nodes: (data.nodes || []).map(normalizeNode),
-    edges: (data.edges || []).map(normalizeEdge),
+    nodes: (data?.nodes || []).map(normalizeNode),
+    edges: (data?.edges || []).map(normalizeEdge),
   };
 }
 
 export async function createGraphNode(payload: CreateNodePayload): Promise<GraphNode> {
-  const body = JSON.stringify(payload);
-  const data = await request<any>(api('/api/kgraphs/nodes'), {
-    method: 'POST',
-    headers: jsonHeaders,
-    body,
-  });
+  const data = await request.post('/api/kgraphs/nodes', payload);
   return normalizeNode(data);
 }
 
 export async function deleteGraphNodes(nodeIds: string[]): Promise<void> {
-  if (!nodeIds.length) return;
-  await request<void>(api('/api/kgraphs/nodes/delete'), {
-    method: 'POST',
-    headers: jsonHeaders,
-    body: JSON.stringify({ nodeIds }),
-  });
+  if (!nodeIds.length) {
+    return;
+  }
+  await request.post('/api/kgraphs/nodes/delete', { nodeIds });
 }
 
 export async function createGraphEdge(payload: CreateEdgePayload): Promise<GraphEdge> {
-  const body = JSON.stringify(payload);
-  const data = await request<any>(api('/api/kgraphs/edges'), {
-    method: 'POST',
-    headers: jsonHeaders,
-    body,
-  });
+  const data = await request.post('/api/kgraphs/edges', payload);
   return normalizeEdge(data);
 }

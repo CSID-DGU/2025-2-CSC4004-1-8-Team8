@@ -19,10 +19,30 @@ import type { GraphNode } from '~/store/knowledgeGraph';
 const convoScope = (node: GraphNode, fallback = 'default') =>
   node.source_conversation_id ?? fallback;
 
+const resolveConvoId = (
+  conversation: any,
+  messages: any[] | null | undefined,
+  fallback = 'default',
+) => {
+  if (conversation?.conversationId) return conversation.conversationId as string;
+  if (Array.isArray(messages)) {
+    const withId = messages.find((m) => (m as any)?.conversationId);
+    if (withId?.conversationId) return withId.conversationId as string;
+  }
+  if (typeof window !== 'undefined') {
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    const idx = parts.indexOf('c');
+    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+  }
+  return fallback;
+};
+
 export default function GraphPanel() {
   const localize = useLocalize();
   const conversation = useRecoilValue(store.conversation);
-  const convoId = conversation?.conversationId ?? 'default';
+  const messages = useRecoilValue(store.messages);
+  const latestMessage = useRecoilValue(store.latestMessage);
+  const convoId = resolveConvoId(conversation, messages, latestMessage?.conversationId ?? 'default');
   const [nodes, setNodes] = useRecoilState(store.knowledgeNodesByConvo(convoId));
   const [edges, setEdges] = useRecoilState(store.knowledgeEdgesByConvo(convoId));
   const [loading, setLoading] = useState(false);
@@ -49,8 +69,11 @@ export default function GraphPanel() {
   }, [convoId, setEdges, setNodes]);
 
   useEffect(() => {
+    // clear stale state when switching conversations
+    setNodes([]);
+    setEdges([]);
     loadGraph();
-  }, [loadGraph]);
+  }, [loadGraph, convoId, setEdges, setNodes]);
 
   const displayNodes: RFNode[] = useMemo(() => {
     const gapX = 260;

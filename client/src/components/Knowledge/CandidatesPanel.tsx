@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRecoilState, useRecoilValue } from 'recoil';
+import { request } from 'librechat-data-provider';
 import type { TMessage } from 'librechat-data-provider';
 
 import { Button } from '~/components';
@@ -9,7 +10,14 @@ import type { CandidateNode } from '~/store/knowledgeGraph';
 import { createGraphNode } from '~/api/kgraph';
 
 const MAX_CANDIDATES = 8;
-const DEFAULT_TOPICS = ['환경 제어', '대체 습관', '목표 설정', '출퇴근 대체 습관', '취침 전 루틴'];
+const MIN_SUMMARY_LENGTH = 400;
+
+const SUMMARIZE_PROMPT = `
+아래 마크다운에서 핵심 아이디어 5개만 bullet JSON 배열로 추출해.
+형식: [{"content": "...", "label": "..."}]
+label은 20~40자, content는 40~200자 사이로 간결히.
+JSON 외 텍스트는 넣지 말 것.
+`;
 
 type ExtractedCandidate = {
   content: string;
@@ -26,29 +34,31 @@ const toLine = (s: string) =>
     .replace(/[\s:]+$/, '');
 
 const toLabel = (s: string) => {
-  let t = toLine(s)
-    .split(' - ')[0]
-    .split(' — ')[0]
-    .split(':')[0]
-    .split('|')[0];
+  let t = toLine(s).split(' - ')[0].split(' — ')[0].split(':')[0].split('|')[0];
   t = t.split(/[.!?]/)[0].trim();
   t = t.replace(/^\*+\s*/, '').trim();
   if (t.length > 40) {
-    t = `${t.slice(0, 37)}…`;
+    t = `${t.slice(0, 37)}...`;
   }
   return t;
 };
 
 const buildExtracted = (raw: string): ExtractedCandidate | null => {
   const content = toLine(raw);
-  if (!content) return null;
+  if (!content) {
+    return null;
+  }
   const label = toLabel(content) || content.slice(0, 40);
-  if (!label) return null;
+  if (!label) {
+    return null;
+  }
   return { content, label };
 };
 
 const extractFromText = (text: string) => {
-  if (!text) return [] as ExtractedCandidate[];
+  if (!text) {
+    return [] as ExtractedCandidate[];
+  }
   const bulletRe = /^(?:\s*)(?:\d+[\.)]|[-*])\s+(.*)$/;
   const headingRe = /^(?:\s*)(?:#{1,6}\s*)(.+)$/;
   const out: ExtractedCandidate[] = [];
@@ -56,16 +66,22 @@ const extractFromText = (text: string) => {
 
   const addCandidate = (raw: string) => {
     const candidate = buildExtracted(raw);
-    if (!candidate) return;
+    if (!candidate) {
+      return;
+    }
     const key = candidate.content.toLowerCase();
-    if (seen.has(key)) return;
+    if (seen.has(key)) {
+      return;
+    }
     seen.add(key);
     out.push(candidate);
   };
 
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
-    if (!line) continue;
+    if (!line) {
+      continue;
+    }
     let m = line.match(bulletRe);
     if (m?.[1]) {
       addCandidate(m[1]);
@@ -89,19 +105,59 @@ const extractFromText = (text: string) => {
   return out.slice(0, MAX_CANDIDATES);
 };
 
-const extractFromMessage = (message: TMessage | null) => {
-  if (!message) return [] as ExtractedCandidate[];
-  let text = '';
+const extractRawText = (message: TMessage | null) => {
+  if (!message) return '';
   if (typeof (message as any).text === 'string' && (message as any).text.trim()) {
-    text = (message as any).text as string;
-  } else if (Array.isArray((message as any).content)) {
-    text = (message as any).content
+    return (message as any).text as string;
+  }
+  if (Array.isArray((message as any).content)) {
+    return (message as any).content
       .map((part: any) => (part?.type === 'text' ? part.text : typeof part === 'string' ? part : ''))
       .filter(Boolean)
       .join('\n');
   }
+  return '';
+};
 
-  return extractFromText(text);
+const parseLLMJson = (text: string): ExtractedCandidate[] => {
+  try {
+    const json = JSON.parse(text);
+    if (!Array.isArray(json)) return [];
+    return json
+      .map((item) => {
+        if (typeof item === 'string') {
+          return buildExtracted(item);
+        }
+        const raw = `${item?.content ?? ''}` || `${item?.label ?? ''}`;
+        return buildExtracted(raw);
+      })
+      .filter((c): c is ExtractedCandidate => !!c);
+  } catch {
+    return [];
+  }
+};
+
+const normalizeAndFilter = (list: ExtractedCandidate[]): ExtractedCandidate[] => {
+  const out: ExtractedCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const c of list) {
+    const content = c.content.trim();
+    const label = c.label.trim();
+    if (!content || !label) continue;
+    if (content.length < 30) continue; // too short → skip
+    if (label.length < 3) continue;
+    if (content.toLowerCase() === label.toLowerCase()) continue;
+
+    const key = `${label.toLowerCase()}|${content.slice(0, 60).toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ content, label: label.length > 40 ? `${label.slice(0, 37)}...` : label });
+
+    if (out.length >= MAX_CANDIDATES) break;
+  }
+
+  return out;
 };
 
 const extractFromDOM = () => {
@@ -137,25 +193,31 @@ const buildCandidateNode = (
   isSeed: opts?.isSeed,
 });
 
-const DEFAULT_CANDIDATE = (convoId: string): CandidateNode[] =>
-  DEFAULT_TOPICS.map((label, index) => ({
-    id: `seed-${convoId}-${index}`,
-    label,
-    content: label,
-    source_conversation_id: convoId,
-    isSeed: true,
-  }));
+const resolveConvoId = (conversation: any, messages: TMessage[] | null | undefined) => {
+  if (conversation?.conversationId) return conversation.conversationId as string;
+  if (Array.isArray(messages)) {
+    const withId = messages.find((m) => (m as any)?.conversationId);
+    if (withId?.conversationId) return withId.conversationId as string;
+  }
+  if (typeof window !== 'undefined') {
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    const idx = parts.indexOf('c');
+    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+  }
+  return 'default';
+};
 
 export default function CandidatesPanel() {
   const localize = useLocalize();
   const conversation = useRecoilValue(store.conversation);
-  const convoId = conversation?.conversationId ?? 'default';
-  const latestMessage = useRecoilValue(store.latestMessage);
   const messages = useRecoilValue(store.messages);
+  const latestMessage = useRecoilValue(store.latestMessage);
+  const convoId = resolveConvoId(conversation, messages);
   const [candidates, setCandidates] = useRecoilState(store.candidateNodesByConvo(convoId));
   const [, setGraphNodes] = useRecoilState(store.knowledgeNodesByConvo(convoId));
-  const seededConvos = useRef<Set<string>>(new Set());
   const lastHandledMessage = useRef<string | null>(null);
+  const summarizedMessages = useRef<Set<string>>(new Set());
+  const seenContents = useRef<Set<string>>(new Set());
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -163,17 +225,30 @@ export default function CandidatesPanel() {
     const arr = Array.isArray(messages) ? messages : [];
     for (let i = arr.length - 1; i >= 0; i--) {
       const m = arr[i];
-      if (m && !m.isCreatedByUser) return m as TMessage;
+      if (m && !m.isCreatedByUser) {
+        return m as TMessage;
+      }
     }
-    return latestMessage && !(latestMessage as any).isCreatedByUser ? (latestMessage as TMessage) : null;
+    return latestMessage && !(latestMessage as any).isCreatedByUser
+      ? (latestMessage as TMessage)
+      : null;
   }, [messages, latestMessage?.messageId]);
+
+  // reset per conversation to avoid leakage
+  useEffect(() => {
+    lastHandledMessage.current = null;
+    summarizedMessages.current.clear();
+    seenContents.current.clear();
+    setCandidates([]);
+  }, [convoId, setCandidates]);
 
   const mergeCandidates = useCallback(
     (extracted: ExtractedCandidate[], message?: TMessage) => {
-      if (!extracted.length) return;
+      const cleaned = normalizeAndFilter(extracted);
+      if (!cleaned.length) return;
       setCandidates((prev) => {
-        const existing = new Set(prev.map((c) => c.content.toLowerCase()));
-        const additions = extracted
+        const existing = new Set(seenContents.current);
+        const additions = cleaned
           .map((candidate) => buildCandidateNode(convoId, candidate, { message }))
           .filter((candidate) => {
             const key = candidate.content.toLowerCase();
@@ -181,27 +256,74 @@ export default function CandidatesPanel() {
             existing.add(key);
             return true;
           });
-        return additions.length ? [...prev, ...additions] : prev;
+        if (additions.length) {
+          // persist seen so removed items do not come back in this convo
+          additions.forEach((c) => seenContents.current.add(c.content.toLowerCase()));
+          return [...prev, ...additions];
+        }
+        return prev;
       });
     },
     [convoId, setCandidates],
+  );
+
+  const fetchLLMSummary = useCallback(
+    async (text: string): Promise<ExtractedCandidate[]> => {
+      if (!text || text.length < MIN_SUMMARY_LENGTH) {
+        return [];
+      }
+      const payload = {
+        text,
+        endpoint: 'openAI', // adjust based on available endpoint
+        model: 'gpt-4o-mini', // adjust to your deployed model
+        messages: [
+          { role: 'system', content: SUMMARIZE_PROMPT.trim() },
+          { role: 'user', content: text.slice(0, 4000) },
+        ],
+        temperature: 0.2,
+        stream: false,
+      };
+
+      try {
+        const res: any = await request.post('/api/ask/openAI', payload);
+        const llmText = (res?.text as string) ?? (res?.message as string) ?? '';
+        return parseLLMJson(llmText);
+      } catch (err) {
+        console.warn('LLM summarize failed', err);
+        return [];
+      }
+    },
+    [],
   );
 
   useEffect(() => {
     const message = lastAssistant;
     if (!message?.messageId) return;
     if (lastHandledMessage.current === message.messageId) return;
-    const extracted = extractFromMessage(message);
-    mergeCandidates(extracted, message);
-    lastHandledMessage.current = message.messageId;
-  }, [lastAssistant, mergeCandidates]);
+    const rawText = extractRawText(message);
 
-  useEffect(() => {
-    if (candidates.length === 0 && !seededConvos.current.has(convoId)) {
-      setCandidates(DEFAULT_CANDIDATE(convoId));
-      seededConvos.current.add(convoId);
-    }
-  }, [candidates.length, convoId, setCandidates]);
+    const run = async () => {
+      let extracted: ExtractedCandidate[] = [];
+
+      if (!summarizedMessages.current.has(message.messageId) && rawText.length >= MIN_SUMMARY_LENGTH) {
+        const llm = await fetchLLMSummary(rawText);
+        const cleaned = normalizeAndFilter(llm);
+        if (cleaned.length) {
+          summarizedMessages.current.add(message.messageId);
+          extracted = cleaned;
+        }
+      }
+
+      if (!extracted.length) {
+        extracted = extractFromText(rawText);
+      }
+
+      mergeCandidates(extracted, message);
+      lastHandledMessage.current = message.messageId;
+    };
+
+    run();
+  }, [lastAssistant, mergeCandidates, fetchLLMSummary]);
 
   useEffect(() => {
     const observer = new MutationObserver((mutations) => {
@@ -219,11 +341,11 @@ export default function CandidatesPanel() {
     try {
       observer.observe(document.body, { childList: true, subtree: true });
     } catch (_) {
-      // ignore observer errors in unsupported environments
+      // ignore
     }
 
     return () => observer.disconnect();
-  }, [mergeCandidates]);
+  }, [mergeCandidates, convoId]);
 
   const handleMove = async (candidate: CandidateNode) => {
     setPendingId(candidate.id);
@@ -240,9 +362,7 @@ export default function CandidatesPanel() {
         source_conversation_id: candidate.source_conversation_id,
       });
       setGraphNodes((prev) => [...prev, newNode]);
-      if (!candidate.isSeed) {
-        setCandidates((prev) => prev.filter((item) => item.id !== candidate.id));
-      }
+      setCandidates((prev) => prev.filter((item) => item.id !== candidate.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add node');
     } finally {
@@ -272,19 +392,21 @@ export default function CandidatesPanel() {
                 disabled={pendingId === candidate.id}
               >
                 {pendingId === candidate.id
-                  ? localize('com_ui_saving') || 'Saving…'
+                  ? localize('com_ui_saving') || 'Saving...'
                   : localize('com_sidepanel_move_to_graph') || 'Move to graph'}
               </Button>
             </div>
             <p className="mt-1 text-xs text-text-secondary">
               {candidate.content.length > 140
-                ? `${candidate.content.slice(0, 137)}…`
+                ? `${candidate.content.slice(0, 137)}...`
                 : candidate.content}
             </p>
           </div>
         ))}
         {candidates.length === 0 && (
-          <div className="p-2 text-sm text-text-secondary">No candidates</div>
+          <div className="p-2 text-sm text-text-secondary">
+            {localize('com_sidepanel_no_candidates') || 'No candidates yet'}
+          </div>
         )}
       </div>
     </div>
