@@ -1,29 +1,42 @@
-import { atom } from 'recoil';
+import { atomFamily } from 'recoil';
 
 export type GraphNode = {
   id: string;
-  label: string;
+  content: string;
+  labels: string[];
+  x: number | null;
+  y: number | null;
+  source_message_id?: string;
+  source_conversation_id?: string;
 };
 
 export type GraphEdge = {
   id: string;
   source: string;
   target: string;
-  label?: string;
+  labels: string[];
 };
 
-export const knowledgeNodesState = atom<GraphNode[]>({
-  key: 'knowledgeNodesState',
+export type CandidateNode = {
+  id: string;
+  label: string;
+  content: string;
+  source_message_id?: string;
+  source_conversation_id: string;
+  isSeed?: boolean;
+};
+
+export const knowledgeNodesByConvo = atomFamily<GraphNode[], string>({
+  key: 'knowledgeNodesByConvo',
   default: [],
 });
 
-export const knowledgeEdgesState = atom<GraphEdge[]>({
-  key: 'knowledgeEdgesState',
+export const knowledgeEdgesByConvo = atomFamily<GraphEdge[], string>({
+  key: 'knowledgeEdgesByConvo',
   default: [],
 });
 
-export const candidateNodesState = atom<string[]>({
-  key: 'candidateNodesState',
+export const candidateNodesByConvo = atomFamily<CandidateNode[], string>({
+  key: 'candidateNodesByConvo',
   default: [],
 });
-
