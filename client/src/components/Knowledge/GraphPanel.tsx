@@ -151,7 +151,7 @@ export default function GraphPanel() {
           </div>
         ) : (
           <ReactFlow nodes={displayNodes} edges={displayEdges} onConnect={onConnect} fitView>
-            <MiniMap />
+            {/*<MiniMap />*/}
             <Controls />
             <Background />
           </ReactFlow>

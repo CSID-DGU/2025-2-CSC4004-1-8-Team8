@@ -227,7 +227,7 @@ const SidePanel = ({
               'fixed top-1/2',
               (isCollapsed && (minSize === 0 || collapsedSize === 0)) || fullCollapse
                 ? 'mr-9'
-                : 'mr-16',
+                : 'mr-9',
             )}
             translateX={false}
             side="right"
