@@ -19,9 +19,9 @@ export const ThemeSelector = ({
   const localize = useLocalize();
 
   const themeOptions = [
-    { value: 'system', label: localize('com_nav_theme_system') },
+    //{ value: 'system', label: localize('com_nav_theme_system') },
     { value: 'dark', label: localize('com_nav_theme_dark') },
-    { value: 'light', label: localize('com_nav_theme_light') },
+    //{ value: 'light', label: localize('com_nav_theme_light') },
   ];
 
   return (
