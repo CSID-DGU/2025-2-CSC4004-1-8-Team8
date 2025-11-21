@@ -193,7 +193,8 @@ class OpenAIClient extends BaseClient {
 
     if (this.maxPromptTokens + this.maxResponseTokens > this.maxContextTokens) {
       throw new Error(
-        `maxPromptTokens + max_tokens (${this.maxPromptTokens} + ${this.maxResponseTokens} = ${this.maxPromptTokens + this.maxResponseTokens
+        `maxPromptTokens + max_tokens (${this.maxPromptTokens} + ${this.maxResponseTokens} = ${
+          this.maxPromptTokens + this.maxResponseTokens
         }) must be less than or equal to maxContextTokens (${this.maxContextTokens})`,
       );
     }
@@ -1166,7 +1167,8 @@ ${convo}
       if (this.options.debug) {
         logger.debug('[OpenAIClient] summaryTokenCount', summaryTokenCount);
         logger.debug(
-          `[OpenAIClient] Summarization complete: remainingContextTokens: ${remainingContextTokens}, after refining: ${remainingContextTokens - summaryTokenCount
+          `[OpenAIClient] Summarization complete: remainingContextTokens: ${remainingContextTokens}, after refining: ${
+            remainingContextTokens - summaryTokenCount
           }`,
         );
       }
@@ -1322,9 +1324,9 @@ ${convo}
 
         opts.baseURL = this.langchainProxy
           ? constructAzureURL({
-            baseURL: this.langchainProxy,
-            azureOptions: this.azure,
-          })
+              baseURL: this.langchainProxy,
+              azureOptions: this.azure,
+            })
           : this.azureEndpoint.split(/(?<!\/)\/(chat|completion)\//)[0];
 
         opts.defaultQuery = { 'api-version': this.azure.azureOpenAIApiVersion };
@@ -1491,9 +1493,15 @@ ${convo}
                 try {
                   const parsed = JSON.parse(jsonBuffer);
                   if (parsed.atomic_ideas && Array.isArray(parsed.atomic_ideas)) {
-                    atomicIdeasParsed = parsed.atomic_ideas;
+                    // Extract content from each atomic_idea object
+                    // Schema format: [{ content: "..." }, { content: "..." }]
+                    atomicIdeasParsed = parsed.atomic_ideas
+                      .filter((idea) => idea && idea.content)
+                      .map((idea) => idea.content);
+
                     logger.debug('[OpenAIClient] Stream: atomic_ideas extracted', {
                       count: atomicIdeasParsed.length,
+                      ideas: atomicIdeasParsed,
                     });
                     // 응답을 response 필드 내용으로 업데이트
                     intermediateReply.length = 0;
@@ -1604,23 +1612,52 @@ ${convo}
       // Try to parse JSON response to extract atomic_ideas
       let atomicIdeas = null;
       try {
+        logger.debug('[OpenAIClient] Attempting to parse JSON response', {
+          contentLength: message.content.length,
+          preview: message.content.slice(0, 100),
+        });
+
         const parsed = JSON.parse(message.content);
+
         if (parsed.atomic_ideas && Array.isArray(parsed.atomic_ideas)) {
-          atomicIdeas = parsed.atomic_ideas;
-          logger.debug('[OpenAIClient] Extracted atomic_ideas from JSON response', {
+          // Extract content from each atomic_idea object
+          // Schema format: [{ content: "..." }, { content: "..." }]
+          atomicIdeas = parsed.atomic_ideas
+            .filter((idea) => idea && idea.content)
+            .map((idea) => idea.content);
+
+          logger.info('[OpenAIClient] ✅ Extracted atomic_ideas from JSON response', {
             count: atomicIdeas.length,
+            ideas: atomicIdeas,
+            hasResponse: !!parsed.response,
+            responseLength: parsed.response ? parsed.response.length : 0,
           });
-          // Return object with both response content and atomic_ideas
-          return {
-            content: parsed.response || message.content,
-            atomic_ideas: atomicIdeas,
-          };
+
+          if (atomicIdeas.length > 0) {
+            // Return object with both response content and atomic_ideas
+            return {
+              content: parsed.response || message.content,
+              atomic_ideas: atomicIdeas,
+            };
+          }
+        }
+
+        if (!atomicIdeas) {
+          logger.debug('[OpenAIClient] JSON parsed but no atomic_ideas found or empty', {
+            keys: Object.keys(parsed),
+            hasAtomicIdeas: !!parsed.atomic_ideas,
+            atomicIdeasLength: parsed.atomic_ideas ? parsed.atomic_ideas.length : 0,
+          });
         }
       } catch (err) {
         // Not a JSON response or failed to parse, use as-is
-        logger.debug('[OpenAIClient] Response is not JSON or parsing failed', err.message);
+        logger.debug('[OpenAIClient] Response is not JSON or parsing failed', {
+          error: err.message,
+          contentPreview: message.content.slice(0, 50),
+        });
       }
 
+      logger.debug('[OpenAIClient] Returning message without atomic_ideas');
       return message.content;
     } catch (err) {
       if (
