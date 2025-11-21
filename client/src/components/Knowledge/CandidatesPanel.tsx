@@ -10,14 +10,10 @@ import type { CandidateNode } from '~/store/knowledgeGraph';
 import { createGraphNode } from '~/api/kgraph';
 
 const MAX_CANDIDATES = 8;
-const MIN_SUMMARY_LENGTH = 400;
+const MIN_SUMMARY_LENGTH = 20;
 
-const SUMMARIZE_PROMPT = `
-아래 마크다운에서 핵심 아이디어 5개만 bullet JSON 배열로 추출해.
-형식: [{"content": "...", "label": "..."}]
-label은 20~40자, content는 40~200자 사이로 간결히.
-JSON 외 텍스트는 넣지 말 것.
-`;
+const SUMMARIZE_PROMPT = `아래 마크다운 전체 내용을 한 문장 또는 두 문장으로 요약해.
+순수 텍스트만 응답하고, JSON이나 마크다운, 따옴표, 설명 문구를 붙이지 말 것.`;
 
 type ExtractedCandidate = {
   content: string;
@@ -34,13 +30,9 @@ const toLine = (s: string) =>
     .replace(/[\s:]+$/, '');
 
 const toLabel = (s: string) => {
-  let t = toLine(s).split(' - ')[0].split(' — ')[0].split(':')[0].split('|')[0];
-  t = t.split(/[.!?]/)[0].trim();
-  t = t.replace(/^\*+\s*/, '').trim();
-  if (t.length > 40) {
-    t = `${t.slice(0, 37)}...`;
-  }
-  return t;
+  if (!s) return '';
+  const trimmed = s.replace(/\s+/g, ' ').trim();
+  return trimmed.length > 80 ? `${trimmed.slice(0, 77)}...` : trimmed;
 };
 
 const buildExtracted = (raw: string): ExtractedCandidate | null => {
@@ -112,7 +104,9 @@ const extractRawText = (message: TMessage | null) => {
   }
   if (Array.isArray((message as any).content)) {
     return (message as any).content
-      .map((part: any) => (part?.type === 'text' ? part.text : typeof part === 'string' ? part : ''))
+      .map((part: any) =>
+        part?.type === 'text' ? part.text : typeof part === 'string' ? part : '',
+      )
       .filter(Boolean)
       .join('\n');
   }
@@ -145,7 +139,7 @@ const normalizeAndFilter = (list: ExtractedCandidate[]): ExtractedCandidate[] =>
     const content = c.content.trim();
     const label = c.label.trim();
     if (!content || !label) continue;
-    if (content.length < 30) continue; // too short → skip
+    if (content.length < 30) continue; // too short ??skip
     if (label.length < 3) continue;
     if (content.toLowerCase() === label.toLowerCase()) continue;
 
@@ -244,21 +238,22 @@ export default function CandidatesPanel() {
 
   const mergeCandidates = useCallback(
     (extracted: ExtractedCandidate[], message?: TMessage) => {
-      const cleaned = normalizeAndFilter(extracted);
+      const cleaned = normalizeAndFilter(extracted).slice(0, 1);
       if (!cleaned.length) return;
       setCandidates((prev) => {
         const existing = new Set(seenContents.current);
         const additions = cleaned
           .map((candidate) => buildCandidateNode(convoId, candidate, { message }))
           .filter((candidate) => {
-            const key = candidate.content.toLowerCase();
+            const key = `${message?.messageId ?? candidate.content}-${candidate.content.toLowerCase()}`;
             if (existing.has(key)) return false;
             existing.add(key);
             return true;
           });
         if (additions.length) {
-          // persist seen so removed items do not come back in this convo
-          additions.forEach((c) => seenContents.current.add(c.content.toLowerCase()));
+          additions.forEach((c) =>
+            seenContents.current.add(`${message?.messageId ?? c.id}-${c.content.toLowerCase()}`),
+          );
           return [...prev, ...additions];
         }
         return prev;
@@ -267,34 +262,31 @@ export default function CandidatesPanel() {
     [convoId, setCandidates],
   );
 
-  const fetchLLMSummary = useCallback(
-    async (text: string): Promise<ExtractedCandidate[]> => {
-      if (!text || text.length < MIN_SUMMARY_LENGTH) {
-        return [];
-      }
-      const payload = {
-        text,
-        endpoint: 'openAI', // adjust based on available endpoint
-        model: 'gpt-4o-mini', // adjust to your deployed model
-        messages: [
-          { role: 'system', content: SUMMARIZE_PROMPT.trim() },
-          { role: 'user', content: text.slice(0, 4000) },
-        ],
-        temperature: 0.2,
-        stream: false,
-      };
+  const fetchLLMSummary = useCallback(async (text: string): Promise<ExtractedCandidate[]> => {
+    if (!text || text.length < MIN_SUMMARY_LENGTH) {
+      return [];
+    }
+    const payload = {
+      text,
+      endpoint: 'openAI', // adjust based on available endpoint
+      model: 'gpt-4o-mini', // adjust to your deployed model
+      messages: [
+        { role: 'system', content: SUMMARIZE_PROMPT.trim() },
+        { role: 'user', content: text.slice(0, 4000) },
+      ],
+      temperature: 0.2,
+      stream: false,
+    };
 
-      try {
-        const res: any = await request.post('/api/ask/openAI', payload);
-        const llmText = (res?.text as string) ?? (res?.message as string) ?? '';
-        return parseLLMJson(llmText);
-      } catch (err) {
-        console.warn('LLM summarize failed', err);
-        return [];
-      }
-    },
-    [],
-  );
+    try {
+      const res: any = await request.post('/api/ask/openAI', payload);
+      const llmText = (res?.text as string) ?? (res?.message as string) ?? '';
+      return parseLLMJson(llmText);
+    } catch (err) {
+      console.warn('LLM summarize failed', err);
+      return [];
+    }
+  }, []);
 
   useEffect(() => {
     const message = lastAssistant;
@@ -305,7 +297,10 @@ export default function CandidatesPanel() {
     const run = async () => {
       let extracted: ExtractedCandidate[] = [];
 
-      if (!summarizedMessages.current.has(message.messageId) && rawText.length >= MIN_SUMMARY_LENGTH) {
+      if (
+        !summarizedMessages.current.has(message.messageId) &&
+        rawText.length >= MIN_SUMMARY_LENGTH
+      ) {
         const llm = await fetchLLMSummary(rawText);
         const cleaned = normalizeAndFilter(llm);
         if (cleaned.length) {
