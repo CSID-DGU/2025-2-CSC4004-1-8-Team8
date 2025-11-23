@@ -112,7 +112,9 @@ const extractRawText = (message: TMessage | null) => {
   }
   if (Array.isArray((message as any).content)) {
     return (message as any).content
-      .map((part: any) => (part?.type === 'text' ? part.text : typeof part === 'string' ? part : ''))
+      .map((part: any) =>
+        part?.type === 'text' ? part.text : typeof part === 'string' ? part : '',
+      )
       .filter(Boolean)
       .join('\n');
   }
@@ -220,6 +222,10 @@ export default function CandidatesPanel() {
   const seenContents = useRef<Set<string>>(new Set());
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draftNew, setDraftNew] = useState<{ label: string; content: string }>({
+    label: '',
+    content: '',
+  });
 
   const lastAssistant = useMemo(() => {
     const arr = Array.isArray(messages) ? messages : [];
@@ -267,34 +273,31 @@ export default function CandidatesPanel() {
     [convoId, setCandidates],
   );
 
-  const fetchLLMSummary = useCallback(
-    async (text: string): Promise<ExtractedCandidate[]> => {
-      if (!text || text.length < MIN_SUMMARY_LENGTH) {
-        return [];
-      }
-      const payload = {
-        text,
-        endpoint: 'openAI', // adjust based on available endpoint
-        model: 'gpt-4o-mini', // adjust to your deployed model
-        messages: [
-          { role: 'system', content: SUMMARIZE_PROMPT.trim() },
-          { role: 'user', content: text.slice(0, 4000) },
-        ],
-        temperature: 0.2,
-        stream: false,
-      };
+  const fetchLLMSummary = useCallback(async (text: string): Promise<ExtractedCandidate[]> => {
+    if (!text || text.length < MIN_SUMMARY_LENGTH) {
+      return [];
+    }
+    const payload = {
+      text,
+      endpoint: 'openAI', // adjust based on available endpoint
+      model: 'gpt-4o-mini', // adjust to your deployed model
+      messages: [
+        { role: 'system', content: SUMMARIZE_PROMPT.trim() },
+        { role: 'user', content: text.slice(0, 4000) },
+      ],
+      temperature: 0.2,
+      stream: false,
+    };
 
-      try {
-        const res: any = await request.post('/api/ask/openAI', payload);
-        const llmText = (res?.text as string) ?? (res?.message as string) ?? '';
-        return parseLLMJson(llmText);
-      } catch (err) {
-        console.warn('LLM summarize failed', err);
-        return [];
-      }
-    },
-    [],
-  );
+    try {
+      const res: any = await request.post('/api/ask/openAI', payload);
+      const llmText = (res?.text as string) ?? (res?.message as string) ?? '';
+      return parseLLMJson(llmText);
+    } catch (err) {
+      console.warn('LLM summarize failed', err);
+      return [];
+    }
+  }, []);
 
   useEffect(() => {
     const message = lastAssistant;
@@ -305,7 +308,10 @@ export default function CandidatesPanel() {
     const run = async () => {
       let extracted: ExtractedCandidate[] = [];
 
-      if (!summarizedMessages.current.has(message.messageId) && rawText.length >= MIN_SUMMARY_LENGTH) {
+      if (
+        !summarizedMessages.current.has(message.messageId) &&
+        rawText.length >= MIN_SUMMARY_LENGTH
+      ) {
         const llm = await fetchLLMSummary(rawText);
         const cleaned = normalizeAndFilter(llm);
         if (cleaned.length) {
@@ -347,10 +353,8 @@ export default function CandidatesPanel() {
     return () => observer.disconnect();
   }, [mergeCandidates, convoId]);
 
-  const handleMove = async (candidate: CandidateNode) => {
-    setPendingId(candidate.id);
-    setError(null);
-    try {
+  const persistGraphNode = useCallback(
+    async (candidate: CandidateNode) => {
       const newNode = await createGraphNode({
         label: candidate.label,
         labels: [candidate.label],
@@ -361,13 +365,76 @@ export default function CandidatesPanel() {
         source_message_id: candidate.source_message_id,
         source_conversation_id: candidate.source_conversation_id,
       });
-      setGraphNodes((prev) => [...prev, newNode]);
+      const patchedNode = {
+        ...newNode,
+        source_conversation_id:
+          newNode.source_conversation_id || candidate.source_conversation_id || convoId,
+        labels:
+          Array.isArray((newNode as any).labels) && (newNode as any).labels.length
+            ? (newNode as any).labels
+            : [candidate.label],
+        content: newNode.content || candidate.content,
+      };
+      setGraphNodes((prev) => [...prev, patchedNode]);
       setCandidates((prev) => prev.filter((item) => item.id !== candidate.id));
+    },
+    [convoId, setCandidates, setGraphNodes],
+  );
+
+  const handleMove = async (candidate: CandidateNode) => {
+    setPendingId(candidate.id);
+    setError(null);
+    try {
+      await persistGraphNode(candidate);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add node');
     } finally {
       setPendingId(null);
     }
+  };
+
+  const handleDeleteCandidate = (candidate: CandidateNode) => {
+    setCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
+    seenContents.current.delete(candidate.content.toLowerCase());
+  };
+
+  const handleUpdateCandidate = (id: string, field: 'label' | 'content', value: string) => {
+    const nextValue = value;
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const updated = { ...c, [field]: nextValue };
+        if (field === 'content') {
+          seenContents.current.delete(c.content.toLowerCase());
+          if (nextValue.trim()) {
+            seenContents.current.add(nextValue.trim().toLowerCase());
+          }
+        }
+        return updated;
+      }),
+    );
+  };
+
+  const handleCreateManual = () => {
+    setError(null);
+    const content = draftNew.content.trim();
+    const label = (draftNew.label || toLabel(content)).trim();
+    if (!content) {
+      setError('내용을 입력해 주세요.');
+      return;
+    }
+    if (!label) {
+      setError('라벨을 입력해 주세요.');
+      return;
+    }
+    const candidate = buildCandidateNode(
+      convoId,
+      { label, content },
+      { isSeed: true, message: latestMessage ?? undefined },
+    );
+    seenContents.current.add(candidate.content.toLowerCase());
+    setCandidates((prev) => [candidate, ...prev]);
+    setDraftNew({ label: '', content: '' });
   };
 
   return (
@@ -376,6 +443,30 @@ export default function CandidatesPanel() {
         {localize('com_sidepanel_candidates') || 'Candidates'}
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
+
+      <div className="rounded-md border border-border-light bg-surface-secondary p-2">
+        <div className="mb-1 text-xs font-semibold text-text-primary">새 임시 노드</div>
+        <div className="flex flex-col gap-2">
+          <input
+            className="w-full rounded border border-border-light bg-background p-2 text-sm text-text-primary outline-none focus:border-accent"
+            placeholder="라벨 (예: 아이디어 요약)"
+            value={draftNew.label}
+            onChange={(e) => setDraftNew((prev) => ({ ...prev, label: e.target.value }))}
+          />
+          <textarea
+            className="min-h-[80px] w-full rounded border border-border-light bg-background p-2 text-sm text-text-primary outline-none focus:border-accent"
+            placeholder="내용을 입력하거나 채팅 내용을 붙여넣으세요."
+            value={draftNew.content}
+            onChange={(e) => setDraftNew((prev) => ({ ...prev, content: e.target.value }))}
+          />
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleCreateManual}>
+              임시 노드 추가
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className="hide-scrollbar flex-1 overflow-auto">
         {candidates.map((candidate) => (
           <div
@@ -383,24 +474,44 @@ export default function CandidatesPanel() {
             className="mb-2 flex flex-col rounded-md border border-border-light bg-surface-secondary px-2 py-1 text-sm text-white"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-text-primary/90 font-medium">{candidate.label}</span>
-              <Button
-                size="sm"
-                variant="outline"
-                className="ml-2 shrink-0"
-                onClick={() => handleMove(candidate)}
-                disabled={pendingId === candidate.id}
-              >
-                {pendingId === candidate.id
-                  ? localize('com_ui_saving') || 'Saving...'
-                  : localize('com_sidepanel_move_to_graph') || 'Move to graph'}
-              </Button>
+              <span className="text-xs text-text-secondary">임시 노드</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => handleMove(candidate)}
+                  disabled={pendingId === candidate.id}
+                >
+                  {pendingId === candidate.id
+                    ? localize('com_ui_saving') || 'Saving...'
+                    : localize('com_sidepanel_move_to_graph') || 'Move to graph'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0 text-xs text-red-400"
+                  onClick={() => handleDeleteCandidate(candidate)}
+                >
+                  삭제
+                </Button>
+              </div>
             </div>
-            <p className="mt-1 text-xs text-text-secondary">
-              {candidate.content.length > 140
-                ? `${candidate.content.slice(0, 137)}...`
-                : candidate.content}
-            </p>
+            <input
+              className="mt-2 w-full rounded border border-border-light bg-background p-2 text-sm font-medium text-text-primary outline-none focus:border-accent"
+              value={candidate.label}
+              onChange={(e) => handleUpdateCandidate(candidate.id, 'label', e.target.value)}
+              placeholder="라벨"
+            />
+            <textarea
+              className="mt-2 min-h-[80px] w-full rounded border border-border-light bg-background p-2 text-xs text-text-secondary outline-none focus:border-accent"
+              value={candidate.content}
+              onChange={(e) => handleUpdateCandidate(candidate.id, 'content', e.target.value)}
+              placeholder="내용을 수정하거나 구체화하세요."
+            />
+            {candidate.isSeed && (
+              <span className="mt-1 text-[10px] uppercase tracking-wide text-accent">seed</span>
+            )}
           </div>
         ))}
         {candidates.length === 0 && (

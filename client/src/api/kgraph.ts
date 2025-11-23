@@ -13,10 +13,20 @@ export type CreateNodePayload = {
   vector_ref?: unknown;
 };
 
+export type UpdateNodePayload = Partial<Omit<CreateNodePayload, 'label'>> & {
+  labels?: string[];
+};
+
 export type CreateEdgePayload = {
   source: string;
   target: string;
   labels?: string[];
+};
+
+export type UpdateEdgePayload = {
+  source: string;
+  target: string;
+  labels: string[];
 };
 
 type GraphResponse = {
@@ -64,6 +74,11 @@ export async function createGraphNode(payload: CreateNodePayload): Promise<Graph
   return normalizeNode(data);
 }
 
+export async function updateGraphNode(nodeId: string, payload: UpdateNodePayload) {
+  const data = await request.patch(`/api/kgraphs/nodes/${nodeId}`, payload);
+  return normalizeNode(data);
+}
+
 export async function deleteGraphNodes(nodeIds: string[]): Promise<void> {
   if (!nodeIds.length) {
     return;
@@ -74,4 +89,21 @@ export async function deleteGraphNodes(nodeIds: string[]): Promise<void> {
 export async function createGraphEdge(payload: CreateEdgePayload): Promise<GraphEdge> {
   const data = await request.post('/api/kgraphs/edges', payload);
   return normalizeEdge(data);
+}
+
+export async function updateGraphEdge(payload: UpdateEdgePayload): Promise<GraphEdge> {
+  const data = await request.patch('/api/kgraphs/edges', payload);
+  return normalizeEdge(data);
+}
+
+export async function deleteGraphEdge(source: string, target: string): Promise<void> {
+  await request.post('/api/kgraphs/edges/delete', { source, target });
+}
+
+export async function requestUmapUpdate() {
+  return request.post('/api/kgraphs/umap');
+}
+
+export async function requestClusterUpdate() {
+  return request.post('/api/kgraphs/cluster');
 }
