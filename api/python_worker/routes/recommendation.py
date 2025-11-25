@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from pydantic import BaseModel
 from services.recommendation.least_similar import recommend_least_similar
 from services.recommendation.synonyms import recommend_synonyms
+from services.recommendation.edge_analogy import recommend_edge_analogy
 
 logger = logging.getLogger("librechat.server")
 
@@ -27,6 +28,7 @@ def get_kgraph_collection(http_request: Request):
 class RecommendationRequest(BaseModel):
 	user_id: str
 	node_id: Optional[str] = None
+	edge_label: Optional[str] = None
 	top_k: Optional[int] = 10
 
 
@@ -68,6 +70,11 @@ async def recommendation(
 		recommendations = await recommend_least_similar(chroma_client, admin_client, user_id, node_id, top_k=top_k)
 	elif method == "synonyms":
 		recommendations = await recommend_synonyms(chroma_client, admin_client, user_id, node_id, top_k=top_k)
+	elif method == "edge_analogy":
+		edge_label = req.edge_label
+		if not edge_label:
+			raise HTTPException(status_code=400, detail="edge_label is required for edge_analogy")
+		recommendations = await recommend_edge_analogy(chroma_client, admin_client, user_id, node_id, edge_label, top_k=top_k)
 	else:
 		raise HTTPException(status_code=400, detail=f"Unknown recommendation method: {method}")
 
@@ -75,4 +82,3 @@ async def recommendation(
 	rec_items = [RecommendationItem(id=r["id"], score=r.get("score")) for r in recommendations]
 
 	return RecommendationResult(method=method, recommendations=rec_items)
-
