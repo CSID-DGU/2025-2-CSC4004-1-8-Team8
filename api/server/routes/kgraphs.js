@@ -56,7 +56,7 @@ router.patch('/nodes/:nodeId', requireJwtAuth, async (req, res) => {
  */
 router.post('/nodes/batch', requireJwtAuth, async (req, res) => {
   try {
-    // req.body에 { messageId }가 포함되어 있어야 함
+    // req.body에 { nodeIds: [...] }가 포함되어 있어야 함
     const newNodes = await KGraph.importNodes(req.user.id, req.body);
     res.status(201).json(newNodes);
   } catch (error) {
@@ -88,8 +88,9 @@ router.post('/nodes/delete', requireJwtAuth, async (req, res) => {
 router.post('/edges', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { source, target, label }이 포함되어 있어야 함
-    const edge = await KGraph.createEdge(req.user.id, req.body);
-    res.status(201).json(edge);
+    const result = await KGraph.createEdge(req.user.id, req.body);
+    // result: { edge, nodes }
+    res.status(201).json(result);
   } catch (error) {
     logger.error(`[kgraph.js] /edges POST Error: ${error.message}`);
     res.status(500).json({ message: '엣지 생성에 실패했습니다.' });
@@ -103,8 +104,9 @@ router.post('/edges', requireJwtAuth, async (req, res) => {
 router.patch('/edges', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { source, target, label: [...] }이 포함되어 있어야 함
-    const edge = await KGraph.updateEdge(req.user.id, req.body);
-    res.status(200).json(edge);
+    const result = await KGraph.updateEdge(req.user.id, req.body);
+    // result: { edge, nodes }
+    res.status(200).json(result);
   } catch (error) {
     logger.error(`[kgraph.js] /edges PATCH Error: ${error.message}`);
     res.status(404).json({ message: error.message }); // 404: 엣지를 찾을 수 없음
@@ -133,14 +135,15 @@ router.post('/edges/delete', requireJwtAuth, async (req, res) => {
 router.get('/recommendations', requireJwtAuth, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { nodeId } = req.query; // Postman Params 탭에서 ?nodeId=... 로 받음
+    const { method, ...params } = req.query; // method와 나머지 파라미터 분리
 
-    if (!nodeId) {
-      return res.status(400).json({ message: 'nodeId 쿼리 파라미터가 필요합니다.' });
+    if (!method) {
+      return res.status(400).json({ message: 'method 쿼리 파라미터가 필요합니다.' });
     }
 
     // 2단계에서 export한 getRecommendations 함수 호출
-    const data = await KGraph.getRecommendations(userId, nodeId);
+    const data = await KGraph.getRecommendations(userId, method, params);
+    res.status(200).json(data);
     res.status(200).json(data);
   } catch (error) {
     logger.error(`[kgraph.js] /recommendations GET Error: ${error.message}`);
@@ -155,8 +158,8 @@ router.get('/recommendations', requireJwtAuth, async (req, res) => {
 router.post('/umap', requireJwtAuth, async (req, res) => {
   try {
     const userId = req.user.id;
-    // 2단계에서 export한 updateUmap 함수 호출
-    const data = await KGraph.updateUmap(userId);
+    // updateUmap 대신 calculateCluster 사용 (로직 통합)
+    const data = await KGraph.calculateCluster(userId);
     res.status(200).json(data);
   } catch (error) {
     logger.error(`[kgraph.js] /umap POST Error: ${error.message}`);

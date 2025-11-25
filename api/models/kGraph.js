@@ -24,14 +24,8 @@ const EMBED_NODE_URL = `${PYTHON_SERVER_URL}/embed/node`;
 // Python 임베딩 서비스 URL (엣지 임베딩)
 const EMBED_EDGE_URL = `${PYTHON_SERVER_URL}/embed/edge`;
 
-// Python 임베딩 서비스 URL (삭제)
-const EMBED_DELETE_URL = `${PYTHON_SERVER_URL}/embed/delete`;
-
 // Python UMAP 서비스 URL
 const PYTHON_UMAP_URL = `${PYTHON_SERVER_URL}/calculate-umap`;
-
-// Python 추천 서비스 URL
-const PYTHON_RECOMMENDATION_URL = `${PYTHON_SERVER_URL}/recommendation`;
 
 // 스키마를 'KGraph'라는 이름의 모델로 등록합니다.
 const KGraph = mongoose.model('KGraph', kgraphSchema);
@@ -163,7 +157,7 @@ const createNode = async (
 const updateNode = async (
   userId,
   nodeId,
-  { label, x, y, content, source_message_id, source_conversation_id },
+  { label, labels, x, y, content, source_message_id, source_conversation_id },
 ) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
@@ -176,10 +170,14 @@ const updateNode = async (
     let contentChanged = false;
 
     // 제공된 필드만 업데이트
-    if (label !== undefined) {
+    // [UPDATE] labels (plural) alias support for frontend compatibility
+    if (labels !== undefined) {
+      node.label = Array.isArray(labels) ? labels : [labels];
+    } else if (label !== undefined) {
       // kgraphSchema.js 스키마에 맞게 수정
       node.label = Array.isArray(label) ? label : [label];
     }
+
     if (x !== undefined) {
       node.x = x;
     }
@@ -243,67 +241,105 @@ const updateNode = async (
  * @param {string} messageId - 임시 노드를 포함한 메시지 ID
  * @returns {Promise<Array>} 추가된 노드 객체의 배열
  */
-const importNodes = async (userId, { messageId }) => {
+const importNodes = async (userId, { nodeIds }) => {
   try {
-    const message = await Message.findOne({ messageId, user: userId });
+    if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
+      throw new Error('가져올 노드 ID 배열이 필요합니다.');
+    }
 
-    if (!message) {
-      throw new Error('임시 노드를 가져올 메시지를 찾을 수 없습니다.');
-    }
-    if (message.isImported) {
-      throw new Error('이미 가져오기가 완료된 메시지입니다.');
-    }
-    if (!message.nodes || message.nodes.length === 0) {
-      throw new Error('가져올 임시 노드가 없습니다.');
+    // 1. 해당 노드들을 포함하는 메시지들을 찾습니다.
+    // "nodes._id"가 nodeIds 배열에 포함된 메시지를 찾음
+    const messages = await Message.find({
+      'nodes._id': { $in: nodeIds },
+      user: userId,
+    });
+
+    if (!messages || messages.length === 0) {
+      throw new Error('해당 노드를 포함하는 메시지를 찾을 수 없습니다.');
     }
 
     const graph = await getOrCreateGraphDoc(userId);
+    const newNodes = [];
+    const savePromises = [];
 
-    // [MERGED] kgraphSchema.js 스키마에 맞게 수정
-    // content는 필수 필드이므로, 임시 노드의 label을 content로 사용
-    const newNodes = message.nodes.map((tn) => ({
-      content: tn.label || '새 노드', // 'content' 필드 추가
-      label: tn.label ? [tn.label] : [], // 'label'을 배열로
-      x: tn.x || 0,
-      y: tn.y || 0,
-    }));
+    // 2. 각 메시지에서 요청된 노드들을 추출하고 isCurated 플래그를 업데이트합니다.
+    for (const message of messages) {
+      let messageModified = false;
 
+      if (message.nodes && Array.isArray(message.nodes)) {
+        for (const node of message.nodes) {
+          // 요청된 nodeIds에 포함된 노드인지 확인
+          if (nodeIds.includes(node._id.toString())) {
+            // 이미 가져온 노드인지 확인 (중복 방지 로직이 필요하다면 추가, 여기서는 단순히 KGraph에 추가)
+            // KGraph에 추가할 노드 객체 생성
+            newNodes.push({
+              content: node.content || node.label || '새 노드',
+              label: node.label ? [node.label] : [],
+              x: node.x || 0,
+              y: node.y || 0,
+              source_message_id: message.messageId,
+              source_conversation_id: message.conversationId,
+            });
+
+            // 메시지 내 노드의 isCurated를 true로 설정
+            if (!node.isCurated) {
+              node.isCurated = true;
+              messageModified = true;
+            }
+          }
+        }
+      }
+
+      if (messageModified) {
+        savePromises.push(message.save());
+      }
+    }
+
+    if (newNodes.length === 0) {
+      throw new Error('가져올 노드가 없습니다. (이미 처리되었거나 유효하지 않은 ID)');
+    }
+
+    // 3. KGraph에 새 노드 추가
     graph.nodes.push(...newNodes);
-    message.isImported = true; // 가져오기 완료 플래그 설정
+    savePromises.push(graph.save());
 
-    // 두 문서(그래프, 메시지)를 동시에 저장
-    await Promise.all([graph.save(), message.save()]);
+    // 4. 변경사항 저장 (메시지들 + 그래프)
+    await Promise.all(savePromises);
 
-    // 방금 추가된 노드들을 반환 (ID 포함)
+    // 5. 방금 추가된 노드들을 반환 (ID 포함)
     const addedNodes = graph.nodes.slice(-newNodes.length);
     const addedNodesForFrontend = addedNodes.map((n) => ({
       ...n.toObject(),
       id: n._id.toString(),
     }));
 
-    // 임베딩 서비스 호출 (transaction 내에서 동기적으로 처리)
+    // 6. 임베딩 서비스 호출 (transaction 내에서 동기적으로 처리)
     try {
       const nodesPayload = addedNodesForFrontend.map((n) => ({
         id: n.id,
         content: n.content,
       }));
 
-      await axios.post(EMBED_NODE_URL, { user_id: userId, nodes: nodesPayload }, { timeout: 15000 });
+      await axios.post(
+        EMBED_NODE_URL,
+        { user_id: userId, nodes: nodesPayload },
+        { timeout: 15000 },
+      );
       logger.info(
         `[KGraph] Embed call success for imported nodes (userId: ${userId}, count: ${nodesPayload.length})`,
       );
     } catch (embedErr) {
       logger.error(
-        `[KGraph] Embed call failed for importNodes (msgId: ${messageId}):`,
+        `[KGraph] Embed call failed for importNodes (count: ${newNodes.length}):`,
         embedErr?.message || embedErr,
       );
-      // 임베딩 실패 시 롤백
+      // 임베딩 실패 시 롤백 (선택 사항: 여기서는 에러만 로깅하고 진행하거나 throw)
       throw new Error('임베딩 생성에 실패했습니다.');
     }
 
     return addedNodesForFrontend;
   } catch (error) {
-    logger.error(`[KGraph] Error in importNodes (userId: ${userId}, msgId: ${messageId})`, error);
+    logger.error(`[KGraph] Error in importNodes (userId: ${userId})`, error);
     throw new Error(`노드 가져오기 실패: ${error.message}`);
   }
 };
@@ -395,26 +431,57 @@ const createEdge = async (userId, { source, target, label }) => {
     let edge = graph.edges.find((e) => e.source === source && e.target === target);
     let isNewEdge = false;
 
+    // label을 배열로 정규화
+    let labelArr = [];
+    if (Array.isArray(label)) {
+      labelArr = label;
+    } else if (label) {
+      labelArr = [label];
+    }
+
     if (edge) {
-      // 엣지가 이미 존재하면, 새 라벨을 (중복이 아닐 경우) 추가
-      if (label && !edge.label.includes(label)) {
-        edge.label.push(label);
+      // 엣지가 이미 존재하면, 새 라벨들을 (중복이 아닐 경우) 추가
+      for (const l of labelArr) {
+        if (!edge.label.includes(l)) {
+          edge.label.push(l);
+        }
       }
     } else {
       // 엣지가 없으면 새로 생성
       const newEdge = {
         source,
         target,
-        label: label ? [label] : [], // kgraphSchema.js 스키마와 호환
+        label: labelArr,
       };
       graph.edges.push(newEdge);
       edge = graph.edges[graph.edges.length - 1];
       isNewEdge = true;
     }
 
+    // [UPDATE] 엣지 연결 시 관련 노드의 updatedAt 갱신
+    const sourceNode = graph.nodes.id(source);
+    const targetNode = graph.nodes.id(target);
+    const now = new Date();
+
+    if (sourceNode) {
+      sourceNode.updatedAt = now;
+    }
+    if (targetNode) {
+      targetNode.updatedAt = now;
+    }
+
     await graph.save();
 
     const edgeForResponse = { ...edge.toObject(), id: edge._id.toString() };
+
+    // [UPDATE] 프론트엔드 데이터 일치를 위해 업데이트된 노드 정보도 반환
+    const nodesForResponse = [];
+    if (sourceNode) {
+      nodesForResponse.push({ ...sourceNode.toObject(), id: sourceNode._id.toString() });
+    }
+    if (targetNode) {
+      nodesForResponse.push({ ...targetNode.toObject(), id: targetNode._id.toString() });
+    }
 
     // Python 임베드 서비스에 엣지 생성/업데이트 요청 (transaction 내에서 동기적으로 처리)
     try {
@@ -428,7 +495,9 @@ const createEdge = async (userId, { source, target, label }) => {
       const url = EMBED_EDGE_URL;
       await axios.post(url, { user_id: userId, edges: [edgePayload] }, { timeout: 15000 });
       logger.info(
-        `[KGraph] Embed call success for ${isNewEdge ? 'new' : 'updated'} edge (userId: ${userId}, edgeId: ${edgeForResponse.id})`,
+        `[KGraph] Embed call success for ${
+          isNewEdge ? 'new' : 'updated'
+        } edge (userId: ${userId}, edgeId: ${edgeForResponse.id})`,
       );
     } catch (embedErr) {
       logger.error(
@@ -439,7 +508,7 @@ const createEdge = async (userId, { source, target, label }) => {
       throw new Error('임베딩 생성에 실패했습니다.');
     }
 
-    return edgeForResponse;
+    return { edge: edgeForResponse, nodes: nodesForResponse };
   } catch (error) {
     logger.error(`[KGraph] Error in createEdge (userId: ${userId})`, error);
     throw new Error(`엣지 생성에 실패했습니다: ${error.message}`);
@@ -472,8 +541,29 @@ const updateEdge = async (userId, { source, target, label }) => {
       edge.label = []; // 기본값
     }
 
+    // [UPDATE] 엣지 수정 시 관련 노드의 updatedAt 갱신
+    const sourceNode = graph.nodes.id(source);
+    const targetNode = graph.nodes.id(target);
+    const now = new Date();
+
+    if (sourceNode) {
+      sourceNode.updatedAt = now;
+    }
+    if (targetNode) {
+      targetNode.updatedAt = now;
+    }
+
     await graph.save();
     const edgeForResponse = { ...edge.toObject(), id: edge._id.toString() };
+
+    // [UPDATE] 프론트엔드 데이터 일치를 위해 업데이트된 노드 정보도 반환
+    const nodesForResponse = [];
+    if (sourceNode) {
+      nodesForResponse.push({ ...sourceNode.toObject(), id: sourceNode._id.toString() });
+    }
+    if (targetNode) {
+      nodesForResponse.push({ ...targetNode.toObject(), id: targetNode._id.toString() });
+    }
 
     // Python 임베드 서비스에 엣지 업데이트 요청 (transaction 내에서 동기적으로 처리)
     try {
@@ -498,7 +588,7 @@ const updateEdge = async (userId, { source, target, label }) => {
       throw new Error('임베딩 업데이트에 실패했습니다.');
     }
 
-    return edgeForResponse;
+    return { edge: edgeForResponse, nodes: nodesForResponse };
   } catch (error) {
     logger.error(`[KGraph] Error in updateEdge (userId: ${userId})`, error);
     throw new Error(`엣지 수정에 실패했습니다: ${error.message}`);
@@ -523,6 +613,18 @@ const deleteEdge = async (userId, { source, target }) => {
     }
 
     const edgeId = edge._id.toString();
+
+    // [UPDATE] 엣지 삭제 시 관련 노드의 updatedAt 갱신
+    const sourceNode = graph.nodes.id(source);
+    const targetNode = graph.nodes.id(target);
+    const now = new Date();
+
+    if (sourceNode) {
+      sourceNode.updatedAt = now;
+    }
+    if (targetNode) {
+      targetNode.updatedAt = now;
+    }
 
     graph.edges.pull({ _id: edge._id }); // Sub-document 배열에서 제거
     await graph.save();
@@ -551,60 +653,56 @@ const deleteEdge = async (userId, { source, target }) => {
   }
 };
 
+const recommendationStrategies = require('./recommendations');
+
+// ... (existing code)
+
 // 4.3 연결 추천 로직
 /**
  * (API 4.3) GET /recommendations
  * 노드 연결 추천
- * Python 추천 서비스에 요청하여 추천 노드 목록을 반환
+ *
+ * @query {string} method - 추천 방법 ('least_similar' | 'synonyms' | 'node_tag' | 'edge_analogy' | 'old_ones')
+ * @query {object} params - 추천 방법에 따른 파라미터
+ *    - least_similar: { nodeId, top_k }
+ *    - synonyms: { nodeId, top_k }
+ *    - node_tag: { tag }
+ *    - edge_analogy: { ... }
+ *    - old_ones: { top_k }
+ *
  * @param {string} userId - 사용자 ID
- * @param {string} nodeId - 추천 대상 노드 ID
- * @param {string} method - 추천 방법 ('least_similar' | 'synonyms')
- *                          - 'least_similar': 그래프 기반 추천 (가장 유사하지 않은 노드)
- *                          - 'synonyms': 임베딩 기반 추천 (동의어/유사 노드)
- * @param {number} top_k - 반환할 추천 노드 개수 (기본값: 10)
+ * @param {string} method - 추천 방법
+ * @param {object} params - 파라미터 객체
  * @returns {Promise<Array>} 추천 노드 목록 [{ id, score }, ...]
  */
-const getRecommendations = async (userId, nodeId, method, top_k = 10) => {
+const getRecommendations = async (userId, method, params) => {
   try {
-    if (!userId || !nodeId) {
-      throw new Error('User ID and Node ID are required');
+    if (!userId) {
+      throw new Error('User ID is required');
     }
 
-    // 유효한 method 값 검증
-    const validMethods = ['least_similar', 'synonyms'];
-    if (!validMethods.includes(method)) {
-      throw new Error(
-        `Invalid method: ${method}. Valid methods are: ${validMethods.join(', ')}`,
-      );
+    const strategy = recommendationStrategies[method];
+    if (!strategy) {
+      const validMethods = Object.keys(recommendationStrategies);
+      throw new Error(`Invalid method: ${method}. Valid methods are: ${validMethods.join(', ')}`);
     }
 
     logger.info(
-      `[KGraph] getRecommendations (userId: ${userId}, nodeId: ${nodeId}, method: ${method})`,
+      `[KGraph] getRecommendations (userId: ${userId}, method: ${method}, params: ${JSON.stringify(
+        params,
+      )})`,
     );
 
-    // Python 추천 서비스에 요청
-    const response = await axios.post(
-      `${PYTHON_RECOMMENDATION_URL}?method=${method}&top_k=${top_k}`,
-      {
-        user_id: userId,
-        node_id: nodeId,
-      },
-      { timeout: 15000 },
-    );
-
-    // Python 서비스에서 반환된 추천 데이터
-    // { method, recommendations: [{ id, score }, ...] }
-    const recommendationResult = response.data;
-    const recommendations = recommendationResult.recommendations || [];
+    const recommendations = await strategy(userId, params);
 
     logger.info(
-      `[KGraph] Recommendations retrieved (userId: ${userId}, nodeId: ${nodeId}, count: ${recommendations.length})`,
+      `[KGraph] Recommendations retrieved (userId: ${userId}, method: ${method}, count: ${recommendations.length})`,
     );
 
     return recommendations;
   } catch (error) {
     logger.error(
-      `[KGraph] Error in getRecommendations (userId: ${userId}, nodeId: ${nodeId})`,
+      `[KGraph] Error in getRecommendations (userId: ${userId}, method: ${method})`,
       error,
     );
     throw new Error(`추천 노드 조회에 실패했습니다: ${error.message}`);
@@ -642,12 +740,10 @@ const calculateCluster = async (userId) => {
     for (const item of umapData) {
       const node = graph.nodes.id(item.id);
       if (node) {
-        node.x = item.x;
-        node.y = item.y;
+        node.x = item.x * 250;
+        node.y = item.y * 250;
       } else {
-        logger.warn(
-          `[KGraph] Node not found in MongoDB (userId: ${userId}, nodeId: ${item.id})`,
-        );
+        logger.warn(`[KGraph] Node not found in MongoDB (userId: ${userId}, nodeId: ${item.id})`);
       }
     }
 
@@ -664,14 +760,6 @@ const calculateCluster = async (userId) => {
   }
 };
 
-// 4.4 UMAP 재계산 로직 (여기에 함수 구현)
-const updateUmap = async (userId) => {
-  // (로직 구현...)
-  logger.info(`[KGraph] updateUmap (userId: ${userId})`);
-  // TODO: Python UMAP 서비스 (umap.py) 호출 로직 필요
-  return { updated: 0 }; // 임시 반환
-};
-
 // 외부에서 함수들을 사용할 수 있도록 export
 module.exports = {
   KGraph,
@@ -684,6 +772,5 @@ module.exports = {
   updateEdge,
   deleteEdge,
   getRecommendations,
-  updateUmap,
   calculateCluster,
 };
