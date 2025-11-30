@@ -59,7 +59,7 @@ async def recommend_least_similar(
         sample_embs = samples.get("embeddings", []) if samples else []
 
         # simple chroma assumption: sample_embs is list[list[float]] aligned with sample_ids
-        if not sample_embs:
+        if len(sample_embs) == 0:
             return []
 
         # build numpy array (n_candidates, dim)
