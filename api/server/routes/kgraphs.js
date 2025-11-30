@@ -144,7 +144,6 @@ router.get('/recommendations', requireJwtAuth, async (req, res) => {
     // 2단계에서 export한 getRecommendations 함수 호출
     const data = await KGraph.getRecommendations(userId, method, params);
     res.status(200).json(data);
-    res.status(200).json(data);
   } catch (error) {
     logger.error(`[kgraph.js] /recommendations GET Error: ${error.message}`);
     res.status(500).json({ message: '추천 목록 조회에 실패했습니다.' });
