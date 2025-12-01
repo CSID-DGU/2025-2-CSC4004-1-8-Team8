@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const { requireJwtAuth } = require('../middleware'); // 사용자 인증용 미들웨어
 const KGraph = require('../../models/kGraph'); // 1단계에서 만든 기능 모음 파일
@@ -26,7 +26,7 @@ router.get('/', requireJwtAuth, async (req, res) => {
 router.post('/nodes', requireJwtAuth, async (req, res) => {
   try {
     // 2단계에서 수정한 createNode가 req.body의 (idea_text, vector_ref)도 처리합니다.
-    const node = await KGraph.createNode(req.user.id, req.body);
+    const node = await KGraph.createNode(req.user.id, req.body, req.headers.authorization);
     res.status(201).json(node);
   } catch (error) {
     logger.error(`[kgraph.js] /nodes POST Error: ${error.message}`);
@@ -42,7 +42,12 @@ router.patch('/nodes/:nodeId', requireJwtAuth, async (req, res) => {
   try {
     const { nodeId } = req.params;
     // 2단계에서 수정한 updateNode가 req.body의 (idea_text, vector_ref)도 처리합니다.
-    const updatedNode = await KGraph.updateNode(req.user.id, nodeId, req.body);
+    const updatedNode = await KGraph.updateNode(
+      req.user.id,
+      nodeId,
+      req.body,
+      req.headers.authorization,
+    );
     res.status(200).json(updatedNode);
   } catch (error) {
     logger.error(`[kgraph.js] /nodes/:nodeId PATCH Error: ${error.message}`);
@@ -57,7 +62,7 @@ router.patch('/nodes/:nodeId', requireJwtAuth, async (req, res) => {
 router.post('/nodes/batch', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { nodeIds: [...] }가 포함되어 있어야 함
-    const newNodes = await KGraph.importNodes(req.user.id, req.body);
+    const newNodes = await KGraph.importNodes(req.user.id, req.body, req.headers.authorization);
     res.status(201).json(newNodes);
   } catch (error) {
     logger.error(`[kgraph.js] /nodes/batch POST Error: ${error.message}`);
@@ -72,7 +77,7 @@ router.post('/nodes/batch', requireJwtAuth, async (req, res) => {
 router.post('/nodes/delete', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { nodeIds: [...] }가 포함되어 있어야 함
-    await KGraph.deleteNodes(req.user.id, req.body);
+    await KGraph.deleteNodes(req.user.id, req.body, req.headers.authorization);
 
     res.sendStatus(204);
   } catch (error) {
@@ -88,7 +93,7 @@ router.post('/nodes/delete', requireJwtAuth, async (req, res) => {
 router.post('/edges', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { source, target, label }이 포함되어 있어야 함
-    const result = await KGraph.createEdge(req.user.id, req.body);
+    const result = await KGraph.createEdge(req.user.id, req.body, req.headers.authorization);
     // result: { edge, nodes }
     res.status(201).json(result);
   } catch (error) {
@@ -104,7 +109,7 @@ router.post('/edges', requireJwtAuth, async (req, res) => {
 router.patch('/edges', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { source, target, label: [...] }이 포함되어 있어야 함
-    const result = await KGraph.updateEdge(req.user.id, req.body);
+    const result = await KGraph.updateEdge(req.user.id, req.body, req.headers.authorization);
     // result: { edge, nodes }
     res.status(200).json(result);
   } catch (error) {
@@ -120,7 +125,7 @@ router.patch('/edges', requireJwtAuth, async (req, res) => {
 router.post('/edges/delete', requireJwtAuth, async (req, res) => {
   try {
     // req.body에 { source, target }이 포함되어 있어야 함
-    await KGraph.deleteEdge(req.user.id, req.body);
+    await KGraph.deleteEdge(req.user.id, req.body, req.headers.authorization);
     res.sendStatus(204); // 성공 (내용 없음)
   } catch (error) {
     logger.error(`[kgraph.js] /edges/delete POST Error: ${error.message}`);
@@ -132,6 +137,7 @@ router.post('/edges/delete', requireJwtAuth, async (req, res) => {
  * (API 4.3) GET /api/kgraphs/recommendations
  * 노드 연결 추천
  */
+
 router.get('/recommendations', requireJwtAuth, async (req, res) => {
   try {
     const userId = req.user.id;

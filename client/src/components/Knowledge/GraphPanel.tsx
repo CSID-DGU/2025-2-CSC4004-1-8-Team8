@@ -74,7 +74,6 @@ export default function GraphPanel() {
   const [savingNode, setSavingNode] = useState(false);
   const [savingEdge, setSavingEdge] = useState(false);
   const [positioning, setPositioning] = useState(false);
-  // 채팅 복사용 기능은 비활성화 (요청에 따라 제거)
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -96,8 +95,20 @@ export default function GraphPanel() {
       const scopedEdges = data.edges.filter(
         (edge) => scopedIds.has(edge.source) && scopedIds.has(edge.target),
       );
-      setNodes((prev) => (scopedNodes.length ? scopedNodes : prev));
-      setEdges((prev) => (scopedEdges.length || scopedNodes.length ? scopedEdges : prev));
+      setNodes((prev) => {
+        if (!scopedNodes.length) return prev;
+        const map = new Map<string, GraphNode>();
+        prev.forEach((n) => map.set(n.id, n));
+        scopedNodes.forEach((n) => map.set(n.id, n));
+        return Array.from(map.values());
+      });
+      setEdges((prev) => {
+        if (!scopedEdges.length && !scopedNodes.length) return prev;
+        const map = new Map<string, RFEdge>();
+        prev.forEach((e: any) => map.set(e.id, e as any));
+        scopedEdges.forEach((e: any) => map.set(e.id, e as any));
+        return Array.from(map.values()) as any;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load knowledge graph');
     } finally {
@@ -137,10 +148,14 @@ export default function GraphPanel() {
     };
     return nodes.map((node, index) => {
       const fallback = { x: (index % 3) * gapX, y: Math.floor(index / 3) * gapY };
+      const hasPosition =
+        typeof node.x === 'number' &&
+        typeof node.y === 'number' &&
+        !(node.x === 0 && node.y === 0); // 서버 기본값(0,0)일 때는 겹치지 않게 배치
       return {
         id: node.id,
         data: { label: pickLabel(node, index) },
-        position: { x: node.x ?? fallback.x, y: node.y ?? fallback.y },
+        position: hasPosition ? { x: node.x!, y: node.y! } : fallback,
         selected: selectedNodeIds.includes(node.id),
       };
     });
