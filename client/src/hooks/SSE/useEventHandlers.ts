@@ -1,6 +1,6 @@
-import { v4 } from 'uuid';
+﻿import { v4 } from 'uuid';
 import { useCallback, useRef } from 'react';
-import { useSetRecoilState } from 'recoil';
+import { useRecoilCallback, useSetRecoilState } from 'recoil';
 import { useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -35,6 +35,7 @@ import { useAuthContext } from '~/hooks/AuthContext';
 import { MESSAGE_UPDATE_INTERVAL } from '~/common';
 import { useLiveAnnouncer } from '~/Providers';
 import store from '~/store';
+import type { CandidateNode } from '~/store/knowledgeGraph';
 
 type TSyncData = {
   sync: boolean;
@@ -88,6 +89,88 @@ export default function useEventHandlers({
   });
   const attachmentHandler = useAttachmentHandler();
 
+  const appendCandidateNodes = useRecoilCallback(
+    ({ set }) =>
+      (
+        convoId: string | undefined,
+        nodes: TKnowledgeNode[] | undefined,
+        sourceMessageId?: string,
+      ) => {
+        if (!convoId || !Array.isArray(nodes) || nodes.length === 0) {
+          return;
+        }
+
+        const normalized = nodes
+          .map((node) => {
+            const content = `${node?.content ?? ''}`.trim();
+            if (!content) return null;
+            const labels = Array.isArray(node?.label)
+              ? node.label
+              : typeof node?.label === 'string'
+              ? [node.label]
+              : [];
+            const label = labels[0] || content.slice(0, 40) || 'Candidate';
+            const id = node?.id ?? crypto.randomUUID?.() ?? String(Date.now());
+            return {
+              id,
+              label,
+              content,
+              source_message_id: node?.source_message_id ?? sourceMessageId,
+              source_conversation_id: node?.source_conversation_id ?? convoId,
+            } satisfies CandidateNode;
+          })
+          .filter((node): node is CandidateNode => !!node);
+
+        if (!normalized.length) return;
+
+        set(store.candidateNodesByConvo(convoId), (prev) => {
+          const seenIds = new Set(prev.map((c) => c.id));
+          const seenContents = new Set(prev.map((c) => c.content.toLowerCase()));
+          const additions = normalized.filter((c) => {
+            const key = c.content.toLowerCase();
+            if (seenIds.has(c.id)) return false;
+            if (seenContents.has(key)) return false;
+            return true;
+          });
+          return additions.length ? [...prev, ...additions] : prev;
+        });
+      },
+    [],
+  );
+
+  const handleNodes = useCallback(
+    (
+      data: { requestMessage?: TMessage; responseMessage?: TMessage; conversation?: TConversation },
+      submission: EventSubmission,
+    ) => {
+      const { requestMessage, responseMessage, conversation } = data;
+      if (
+        !responseMessage ||
+        typeof responseMessage !== 'object' ||
+        !('nodes' in responseMessage)
+      ) {
+        return;
+      }
+
+      const nodesValue = (responseMessage as { nodes?: TKnowledgeNode[] }).nodes;
+
+      if (Array.isArray(nodesValue) && nodesValue.length > 0) {
+        console.log('🧠 [finalHandler] nodes received:', {
+          messageId: responseMessage.messageId,
+          count: nodesValue.length,
+        });
+        const targetConvoId =
+          conversation?.conversationId ??
+          submission.conversation?.conversationId ??
+          requestMessage?.conversationId ??
+          responseMessage?.conversationId ??
+          '';
+        const sourceMsgId = responseMessage?.messageId ?? requestMessage?.messageId;
+        appendCandidateNodes(targetConvoId, nodesValue, sourceMsgId);
+      }
+    },
+    [appendCandidateNodes],
+  );
   const messageHandler = useCallback(
     (data: string | undefined, submission: EventSubmission) => {
       const {
@@ -378,6 +461,9 @@ export default function useEventHandlers({
         message: getAllContentText(responseMessage),
       });
 
+      // Handle knowledge nodes from response
+      handleNodes({ requestMessage, responseMessage, conversation }, submission);
+
       /* Extract nodes from responseMessage if available */
       if (responseMessage && typeof responseMessage === 'object' && 'nodes' in responseMessage) {
         const nodesValue = (responseMessage as { nodes?: TKnowledgeNode[] }).nodes;
@@ -461,6 +547,7 @@ export default function useEventHandlers({
       setConversation,
       setIsSubmitting,
       setShowStopButton,
+      handleNodes,
     ],
   );
 

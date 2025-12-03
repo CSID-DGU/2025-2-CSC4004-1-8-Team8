@@ -20,13 +20,13 @@ export type UpdateNodePayload = Partial<Omit<CreateNodePayload, 'label'>> & {
 export type CreateEdgePayload = {
   source: string;
   target: string;
-  labels?: string[];
+  label?: string | string[];
 };
 
 export type UpdateEdgePayload = {
   source: string;
   target: string;
-  labels: string[];
+  label: string | string[];
 };
 
 type GraphResponse = {

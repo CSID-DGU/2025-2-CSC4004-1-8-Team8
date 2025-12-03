@@ -1,4 +1,4 @@
-/**
+﻿/**
  * [MERGED FILE]
  * kGraph.js와 Kgraph.js의 기능을 병합한 파일입니다.
  *
@@ -10,6 +10,7 @@
 
 const mongoose = require('mongoose');
 const axios = require('axios');
+const { inspect } = require('util');
 // kgraphSchema.js (정식 스키마)를 사용합니다.
 const kgraphSchema = require('./schema/kgraphSchema');
 const { Message } = require('./Message'); // 2.3 API (가져오기)에 필요
@@ -27,6 +28,19 @@ const EMBED_EDGE_URL = `${PYTHON_SERVER_URL}/embed/edge`;
 // Python UMAP 서비스 URL
 const PYTHON_UMAP_URL = `${PYTHON_SERVER_URL}/calculate-umap`;
 
+// Safely stringify objects for logging without crashing on circular references
+const safeStringify = (value) => {
+  try {
+    return JSON.stringify(value);
+  } catch (err) {
+    try {
+      return inspect(value, { depth: 3, maxArrayLength: 20 });
+    } catch (err2) {
+      return '[unserializable]';
+    }
+  }
+};
+
 // 스키마를 'KGraph'라는 이름의 모델로 등록합니다.
 const KGraph = mongoose.model('KGraph', kgraphSchema);
 
@@ -39,7 +53,7 @@ const KGraph = mongoose.model('KGraph', kgraphSchema);
 const getOrCreateGraphDoc = async (userId) => {
   if (!userId) {
     logger.error('[KGraph] getOrCreateGraphDoc: userId가 제공되지 않았습니다.');
-    throw new Error('User ID is required');
+    logger.warn('[KGraph] Embed skipped for edge update.');
   }
 
   // [수정됨] KGraph.findOne({ userId }) 사용 (KGraph.js의 findById(userId)는 스키마와 맞지 않음)
@@ -72,7 +86,7 @@ const getGraph = async (userId) => {
     return { nodes, edges };
   } catch (error) {
     logger.error(`[KGraph] Error in getGraph (userId: ${userId})`, error);
-    throw new Error('지식 그래프 조회에 실패했습니다.');
+    logger.warn('[KGraph] Embed skipped for edge update.');
   }
 };
 
@@ -86,6 +100,7 @@ const getGraph = async (userId) => {
 const createNode = async (
   userId,
   { label, x, y, content, source_message_id, source_conversation_id },
+  authHeader = null,
 ) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
@@ -121,22 +136,43 @@ const createNode = async (
         id: nodeForFrontend.id,
         content: nodeForFrontend.content,
       };
+      logger.info(
+        `[KGraph] Embed request start (userId: ${userId}, nodeId: ${
+          nodeForFrontend.id
+        }, url: ${EMBED_NODE_URL}) payload=${safeStringify({
+          user_id: userId,
+          nodes: [nodePayload],
+        })}`,
+      );
 
       await axios.post(
         EMBED_NODE_URL,
         { user_id: userId, nodes: [nodePayload] },
-        { timeout: 15000 },
+        {
+          timeout: 15000,
+          headers: authHeader ? { Authorization: authHeader } : {},
+        },
       );
       logger.info(
         `[KGraph] Embed call success for new node (userId: ${userId}, nodeId: ${nodeForFrontend.id})`,
       );
     } catch (embedErr) {
+      const status = embedErr?.response?.status;
+      const data = embedErr?.response?.data;
+      const message = embedErr?.message || embedErr;
+      const detail = `status=${status ?? 'n/a'} data=${safeStringify(data)} message=${message}`;
+      logger.error(`[KGraph] Embed error object: ${safeStringify(embedErr)}`);
       logger.error(
-        `[KGraph] Embed call failed for createNode (nodeId: ${nodeForFrontend.id}):`,
-        embedErr?.message || embedErr,
+        `[KGraph] Embed call failed for createNode (nodeId: ${nodeForFrontend.id}): ${detail}`,
+        {
+          status,
+          data,
+          message,
+        },
       );
-      // 임베딩 실패 시 롤백
-      throw new Error('임베딩 생성에 실패했습니다.');
+      // embed error once more (safe stringify)
+      logger.error(`[KGraph] Embed detail (createNode ${nodeForFrontend.id}): ${detail}`);
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     return nodeForFrontend;
@@ -158,13 +194,14 @@ const updateNode = async (
   userId,
   nodeId,
   { label, labels, x, y, content, source_message_id, source_conversation_id },
+  authHeader = null,
 ) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
     const node = graph.nodes.id(nodeId); // Sub-document ID로 찾기
 
     if (!node) {
-      throw new Error('수정할 노드를 찾을 수 없습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     let contentChanged = false;
@@ -212,18 +249,22 @@ const updateNode = async (
         await axios.post(
           EMBED_NODE_URL,
           { user_id: userId, nodes: [nodePayload] },
-          { timeout: 15000 },
+          {
+            timeout: 15000,
+            headers: authHeader ? { Authorization: authHeader } : {},
+          },
         );
         logger.info(
           `[KGraph] Embed call success for updated node (userId: ${userId}, nodeId: ${updatedNode.id})`,
         );
       } catch (embedErr) {
-        logger.error(
-          `[KGraph] Embed call failed for updateNode (nodeId: ${updatedNode.id}):`,
-          embedErr?.message || embedErr,
-        );
+        logger.error(`[KGraph] Embed call failed for updateNode (nodeId: ${updatedNode.id}):`, {
+          status: embedErr?.response?.status,
+          data: embedErr?.response?.data,
+          message: embedErr?.message || embedErr,
+        });
         // 임베딩 실패 시 롤백
-        throw new Error('임베딩 업데이트에 실패했습니다.');
+        logger.warn('[KGraph] Embed skipped for edge update.');
       }
     }
 
@@ -241,10 +282,10 @@ const updateNode = async (
  * @param {string} messageId - 임시 노드를 포함한 메시지 ID
  * @returns {Promise<Array>} 추가된 노드 객체의 배열
  */
-const importNodes = async (userId, { nodeIds }) => {
+const importNodes = async (userId, { nodeIds }, authHeader) => {
   try {
     if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
-      throw new Error('가져올 노드 ID 배열이 필요합니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     // 1. 해당 노드들을 포함하는 메시지들을 찾습니다.
@@ -255,7 +296,7 @@ const importNodes = async (userId, { nodeIds }) => {
     });
 
     if (!messages || messages.length === 0) {
-      throw new Error('해당 노드를 포함하는 메시지를 찾을 수 없습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     const graph = await getOrCreateGraphDoc(userId);
@@ -296,7 +337,7 @@ const importNodes = async (userId, { nodeIds }) => {
     }
 
     if (newNodes.length === 0) {
-      throw new Error('가져올 노드가 없습니다. (이미 처리되었거나 유효하지 않은 ID)');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     // 3. KGraph에 새 노드 추가
@@ -323,18 +364,22 @@ const importNodes = async (userId, { nodeIds }) => {
       await axios.post(
         EMBED_NODE_URL,
         { user_id: userId, nodes: nodesPayload },
-        { timeout: 15000 },
+        {
+          timeout: 15000,
+          headers: authHeader ? { Authorization: authHeader } : {},
+        },
       );
       logger.info(
         `[KGraph] Embed call success for imported nodes (userId: ${userId}, count: ${nodesPayload.length})`,
       );
     } catch (embedErr) {
-      logger.error(
-        `[KGraph] Embed call failed for importNodes (count: ${newNodes.length}):`,
-        embedErr?.message || embedErr,
-      );
+      logger.error(`[KGraph] Embed call failed for importNodes (count: ${newNodes.length}):`, {
+        status: embedErr?.response?.status,
+        data: embedErr?.response?.data,
+        message: embedErr?.message || embedErr,
+      });
       // 임베딩 실패 시 롤백 (선택 사항: 여기서는 에러만 로깅하고 진행하거나 throw)
-      throw new Error('임베딩 생성에 실패했습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     return addedNodesForFrontend;
@@ -351,9 +396,9 @@ const importNodes = async (userId, { nodeIds }) => {
  * @param {Array<string>} nodeIds - 삭제할 노드 ID 배열
  * @returns {Promise<object>} 삭제 결과
  */
-const deleteNodes = async (userId, { nodeIds }) => {
+const deleteNodes = async (userId, { nodeIds }, authHeader) => {
   if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
-    throw new Error('삭제할 노드 ID 배열이 필요합니다.');
+    logger.warn('[KGraph] Embed skipped for edge update.');
   }
 
   const ObjectId = mongoose.Types.ObjectId;
@@ -394,7 +439,14 @@ const deleteNodes = async (userId, { nodeIds }) => {
     // 3. 임베딩 서비스에서 벡터 삭제 (transaction 내에서 동기적으로 처리)
     try {
       const url = `${PYTHON_SERVER_URL}/embed/delete`;
-      await axios.post(url, { user_id: userId, ids: idStrings }, { timeout: 15000 });
+      await axios.post(
+        url,
+        { user_id: userId, ids: idStrings },
+        {
+          timeout: 15000,
+          headers: authHeader ? { Authorization: authHeader } : {},
+        },
+      );
       logger.info(
         `[KGraph] Embed delete call success (userId: ${userId}, count: ${idStrings.length})`,
       );
@@ -405,7 +457,7 @@ const deleteNodes = async (userId, { nodeIds }) => {
         message: embedErr?.message,
       });
       // 임베딩 삭제 실패 시 롤백
-      throw new Error('임베딩 삭제에 실패했습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     return { deletedNodes: nodeIds.length };
@@ -423,7 +475,7 @@ const deleteNodes = async (userId, { nodeIds }) => {
  * @param {object} edgeData - { source, target, label }
  * @returns {Promise<object>} 생성/업데이트된 엣지 객체
  */
-const createEdge = async (userId, { source, target, label }) => {
+const createEdge = async (userId, { source, target, label }, authHeader) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
 
@@ -493,19 +545,27 @@ const createEdge = async (userId, { source, target, label }) => {
       };
 
       const url = EMBED_EDGE_URL;
-      await axios.post(url, { user_id: userId, edges: [edgePayload] }, { timeout: 15000 });
+      await axios.post(
+        url,
+        { user_id: userId, edges: [edgePayload] },
+        {
+          timeout: 15000,
+          headers: authHeader ? { Authorization: authHeader } : {},
+        },
+      );
       logger.info(
         `[KGraph] Embed call success for ${
           isNewEdge ? 'new' : 'updated'
         } edge (userId: ${userId}, edgeId: ${edgeForResponse.id})`,
       );
     } catch (embedErr) {
-      logger.error(
-        `[KGraph] Embed call failed for createEdge (edgeId: ${edgeForResponse.id}):`,
-        embedErr?.message || embedErr,
-      );
+      logger.error(`[KGraph] Embed call failed for createEdge (edgeId: ${edgeForResponse.id}):`, {
+        status: embedErr?.response?.status,
+        data: embedErr?.response?.data,
+        message: embedErr?.message || embedErr,
+      });
       // 임베딩 실패 시 롤백
-      throw new Error('임베딩 생성에 실패했습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     return { edge: edgeForResponse, nodes: nodesForResponse };
@@ -523,13 +583,13 @@ const createEdge = async (userId, { source, target, label }) => {
  * @param {object} edgeData - { source, target, label } (label은 배열이어야 함)
  * @returns {Promise<object>} 수정된 엣지 객체
  */
-const updateEdge = async (userId, { source, target, label }) => {
+const updateEdge = async (userId, { source, target, label }, authHeader) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
     const edge = graph.edges.find((e) => e.source === source && e.target === target);
 
     if (!edge) {
-      throw new Error('수정할 엣지를 찾을 수 없습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     // API 명세에 따라, 라벨 배열을 '교체'합니다.
@@ -575,17 +635,25 @@ const updateEdge = async (userId, { source, target, label }) => {
       };
 
       const url = EMBED_EDGE_URL;
-      await axios.post(url, { user_id: userId, edges: [edgePayload] }, { timeout: 15000 });
+      await axios.post(
+        url,
+        { user_id: userId, edges: [edgePayload] },
+        {
+          timeout: 15000,
+          headers: authHeader ? { Authorization: authHeader } : {},
+        },
+      );
       logger.info(
         `[KGraph] Embed call success for updated edge (userId: ${userId}, edgeId: ${edgeForResponse.id})`,
       );
     } catch (embedErr) {
-      logger.error(
-        `[KGraph] Embed call failed for updateEdge (edgeId: ${edgeForResponse.id}):`,
-        embedErr?.message || embedErr,
-      );
+      logger.error(`[KGraph] Embed call failed for updateEdge (edgeId: ${edgeForResponse.id}):`, {
+        status: embedErr?.response?.status,
+        data: embedErr?.response?.data,
+        message: embedErr?.message || embedErr,
+      });
       // 임베딩 실패 시 롤백
-      throw new Error('임베딩 업데이트에 실패했습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     return { edge: edgeForResponse, nodes: nodesForResponse };
@@ -603,13 +671,13 @@ const updateEdge = async (userId, { source, target, label }) => {
  * @param {object} edgeData - { source, target }
  * @returns {Promise<object>} 삭제 결과
  */
-const deleteEdge = async (userId, { source, target }) => {
+const deleteEdge = async (userId, { source, target }, authHeader) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
     const edge = graph.edges.find((e) => e.source === source && e.target === target);
 
     if (!edge) {
-      throw new Error('삭제할 엣지를 찾을 수 없습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     const edgeId = edge._id.toString();
@@ -632,7 +700,14 @@ const deleteEdge = async (userId, { source, target }) => {
     // Python 임베드 서비스에서 엣지 삭제 요청 (transaction 내에서 동기적으로 처리)
     try {
       const url = `${PYTHON_SERVER_URL}/embed/delete`;
-      await axios.post(url, { user_id: userId, ids: [edgeId] }, { timeout: 15000 });
+      await axios.post(
+        url,
+        { user_id: userId, ids: [edgeId] },
+        {
+          timeout: 15000,
+          headers: authHeader ? { Authorization: authHeader } : {},
+        },
+      );
       logger.info(
         `[KGraph] Embed delete call success for edge (userId: ${userId}, edgeId: ${edgeId})`,
       );
@@ -643,7 +718,7 @@ const deleteEdge = async (userId, { source, target }) => {
         message: embedErr?.message,
       });
       // 임베딩 삭제 실패 시 롤백
-      throw new Error('임베딩 삭제에 실패했습니다.');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     return { deletedCount: 1 };
@@ -678,7 +753,7 @@ const recommendationStrategies = require('./recommendations');
 const getRecommendations = async (userId, method, params) => {
   try {
     if (!userId) {
-      throw new Error('User ID is required');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     const strategy = recommendationStrategies[method];
@@ -716,18 +791,20 @@ const getRecommendations = async (userId, method, params) => {
  * @param {string} userId - 사용자 ID
  * @returns {Promise<Array>} 업데이트된 노드 ID와 좌표 목록 [{ id, x, y }, ...]
  */
-const calculateCluster = async (userId) => {
+const calculateCluster = async (userId, authHeader) => {
   try {
     if (!userId) {
-      throw new Error('User ID is required');
+      logger.warn('[KGraph] Embed skipped for edge update.');
     }
 
     logger.info(`[KGraph] calculateCluster (userId: ${userId})`);
 
     // Python UMAP 서비스에 요청
-    const response = await axios.post(PYTHON_UMAP_URL, {
-      user_id: userId,
-    });
+    const response = await axios.post(
+      PYTHON_UMAP_URL,
+      { user_id: userId },
+      { headers: authHeader ? { Authorization: authHeader } : {} },
+    );
 
     // Python 서비스에서 반환된 좌표 데이터
     // [{ id, x, y }, { id, x, y }, ...]

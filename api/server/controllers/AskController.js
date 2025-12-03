@@ -130,6 +130,53 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
     let response = await client.sendMessage(text, messageOptions);
     response.endpoint = endpointOption.endpoint;
 
+    // Normalize response shape and extract atomic_ideas if present or encoded in JSON string
+    let atomicIdeas = Array.isArray(response?.atomic_ideas) ? response.atomic_ideas : null;
+
+    // Helper to try parsing a JSON string for response/atomic_ideas fields
+    const tryParseIdeas = (raw) => {
+      if (typeof raw !== 'string') return null;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed?.atomic_ideas && Array.isArray(parsed.atomic_ideas)) {
+          if (parsed?.response && !response.text) {
+            response = { ...response, text: parsed.response };
+          }
+          return parsed.atomic_ideas;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    if (!atomicIdeas) {
+      atomicIdeas = tryParseIdeas(response?.text) || tryParseIdeas(response);
+    }
+
+    if (!response.text && typeof response === 'string') {
+      response = { ...response, text: response };
+    }
+
+    // Fallback: derive atomic ideas from plain text (simple bullet/numbered list extraction)
+    const extractIdeasFromText = (raw) => {
+      if (!raw || typeof raw !== 'string') return [];
+      const lines = raw.split(/\r?\n/);
+      const out = [];
+      const bulletRe = /^(?:\s*)(?:\d+[\.)]|[-*•])\s+(.*)$/;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const m = trimmed.match(bulletRe);
+        const content = m?.[1] || trimmed;
+        if (content && content.length > 0) {
+          out.push({ content, isCurated: false });
+        }
+        if (out.length >= 10) break;
+      }
+      return out;
+    };
+
     const { conversation = {} } = await client.responsePromise;
     conversation.title =
       conversation && !conversation.title ? null : conversation?.title || 'New Chat';
@@ -144,9 +191,26 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
       // Save to DB and get the saved message with nodes (including _id)
       const savedMessage = await saveMessage(
         req,
-        { ...response, user },
+        { ...response, atomic_ideas: atomicIdeas ?? response?.atomic_ideas, user },
         { context: 'api/server/controllers/AskController.js - response end' },
       );
+
+      const resolvedNodes =
+        (savedMessage?.nodes && Array.isArray(savedMessage.nodes) && savedMessage.nodes.length
+          ? savedMessage.nodes
+          : null) ||
+        (response?.nodes && Array.isArray(response.nodes) && response.nodes.length
+          ? response.nodes
+          : null) ||
+        (atomicIdeas && Array.isArray(atomicIdeas) && atomicIdeas.length
+          ? atomicIdeas.map((idea) =>
+              typeof idea === 'object' && idea !== null && 'content' in idea
+                ? { ...idea, content: idea.content, isCurated: false }
+                : { content: String(idea), isCurated: false },
+            )
+          : null) ||
+        extractIdeasFromText(response?.text) ||
+        [];
 
       // Send final response with messageId and nodes from saved message
       sendMessage(res, {
@@ -157,7 +221,7 @@ const AskController = async (req, res, next, initializeClient, addTitle) => {
         responseMessage: {
           ...response,
           messageId: savedMessage?.messageId || responseMessageId,
-          nodes: savedMessage?.nodes || [],
+          nodes: resolvedNodes,
         },
       });
 
