@@ -164,7 +164,7 @@ router.post('/umap', requireJwtAuth, async (req, res) => {
   try {
     const userId = req.user.id;
     // updateUmap 대신 calculateCluster 사용 (로직 통합)
-    const data = await KGraph.calculateCluster(userId);
+    const data = await KGraph.calculateCluster(userId, req.headers.authorization);
     res.status(200).json(data);
   } catch (error) {
     logger.error(`[kgraph.js] /umap POST Error: ${error.message}`);
@@ -182,7 +182,7 @@ router.post('/cluster', requireJwtAuth, async (req, res) => {
   try {
     const userId = req.user.id;
     // calculateCluster 함수 호출: Python UMAP 서비스에 요청하여 좌표 계산
-    const clusterData = await KGraph.calculateCluster(userId);
+    const clusterData = await KGraph.calculateCluster(userId, req.headers.authorization);
     // Success Response: 업데이트된 노드 ID와 좌표 목록 반환
     // [{ id: "node_id_1", x: 55.0, y: 10.0 }, ...]
     res.status(200).json(clusterData);

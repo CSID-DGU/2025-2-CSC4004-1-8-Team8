@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRecoilState, useRecoilValue } from 'recoil';
 import ReactFlow, {
   Background,
@@ -149,9 +149,7 @@ export default function GraphPanel() {
     return nodes.map((node, index) => {
       const fallback = { x: (index % 3) * gapX, y: Math.floor(index / 3) * gapY };
       const hasPosition =
-        typeof node.x === 'number' &&
-        typeof node.y === 'number' &&
-        !(node.x === 0 && node.y === 0); // 서버 기본값(0,0)일 때는 겹치지 않게 배치
+        typeof node.x === 'number' && typeof node.y === 'number' && !(node.x === 0 && node.y === 0); // 서버 기본값(0,0)일 때는 겹치지 않게 배치
       return {
         id: node.id,
         data: { label: pickLabel(node, index) },
@@ -211,12 +209,13 @@ export default function GraphPanel() {
       setError(null);
       try {
         const labelInput =
-          window.prompt('두 노드 사이 관계 라벨을 입력하세요. (예: 문제-해결)', '관련') || '';
-        const labels = parseLabels(labelInput || '관련');
+          window.prompt('관계 라벨을 입력하세요 (예: 원인-결과, 문제-해결)', '관계') || '';
+        const labels = parseLabels(labelInput);
+        const label = labels.length > 1 ? labels : labels[0] || undefined;
         const newEdge = await createGraphEdge({
           source: connection.source,
           target: connection.target,
-          labels: labels.length ? labels : undefined,
+          label,
         });
         setEdges((prev) => [...prev, newEdge]);
       } catch (err) {
@@ -247,7 +246,7 @@ export default function GraphPanel() {
           prev.map((node) => (node.id === targetId ? { ...node, ...updated } : node)),
         );
       } else {
-        const defaultLabel = nodeDraft.label || nodeDraft.content.slice(0, 40) || '새 노드';
+        const defaultLabel = nodeDraft.label || nodeDraft.content.slice(0, 40) || '???몃뱶';
         const created = await createGraphNode({
           label: defaultLabel,
           labels: labels.length ? labels : [defaultLabel],
