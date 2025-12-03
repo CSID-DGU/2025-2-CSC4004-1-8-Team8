@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRecoilState, useRecoilValue } from 'recoil';
 import { request } from 'librechat-data-provider';
 import type { TMessage } from 'librechat-data-provider';
@@ -11,13 +11,6 @@ import { createGraphNode } from '~/api/kgraph';
 
 const MAX_CANDIDATES = 8;
 const MIN_SUMMARY_LENGTH = 400;
-
-const SUMMARIZE_PROMPT = `
-아래 마크다운에서 핵심 아이디어 5개만 bullet JSON 배열로 추출해.
-형식: [{"content": "...", "label": "..."}]
-label은 20~40자, content는 40~200자 사이로 간결히.
-JSON 외 텍스트는 넣지 말 것.
-`;
 
 type ExtractedCandidate = {
   content: string;
@@ -34,7 +27,7 @@ const toLine = (s: string) =>
     .replace(/[\s:]+$/, '');
 
 const toLabel = (s: string) => {
-  let t = toLine(s).split(' - ')[0].split(' — ')[0].split(':')[0].split('|')[0];
+  let t = toLine(s).split(' - ')[0].split(' ??')[0].split(':')[0].split('|')[0];
   t = t.split(/[.!?]/)[0].trim();
   t = t.replace(/^\*+\s*/, '').trim();
   if (t.length > 40) {
@@ -147,7 +140,7 @@ const normalizeAndFilter = (list: ExtractedCandidate[]): ExtractedCandidate[] =>
     const content = c.content.trim();
     const label = c.label.trim();
     if (!content || !label) continue;
-    if (content.length < 30) continue; // too short → skip
+    if (content.length < 30) continue; // too short ??skip
     if (label.length < 3) continue;
     if (content.toLowerCase() === label.toLowerCase()) continue;
 
@@ -281,10 +274,7 @@ export default function CandidatesPanel() {
       text,
       endpoint: 'openAI', // adjust based on available endpoint
       model: 'gpt-4o-mini', // adjust to your deployed model
-      messages: [
-        { role: 'system', content: SUMMARIZE_PROMPT.trim() },
-        { role: 'user', content: text.slice(0, 4000) },
-      ],
+      messages: [{ role: 'user', content: text.slice(0, 4000) }],
       temperature: 0.2,
       stream: false,
     };
@@ -420,11 +410,11 @@ export default function CandidatesPanel() {
     const content = draftNew.content.trim();
     const label = (draftNew.label || toLabel(content)).trim();
     if (!content) {
-      setError('내용을 입력해 주세요.');
+      setError('?댁슜???낅젰??二쇱꽭??');
       return;
     }
     if (!label) {
-      setError('라벨을 입력해 주세요.');
+      setError('?쇰꺼???낅젰??二쇱꽭??');
       return;
     }
     const candidate = buildCandidateNode(
@@ -455,7 +445,7 @@ export default function CandidatesPanel() {
           />
           <textarea
             className="min-h-[80px] w-full rounded border border-border-light bg-background p-2 text-sm text-text-primary outline-none focus:border-accent"
-            placeholder="내용을 입력하거나 채팅 내용을 붙여넣으세요."
+            placeholder="내용을 입력하시오"
             value={draftNew.content}
             onChange={(e) => setDraftNew((prev) => ({ ...prev, content: e.target.value }))}
           />

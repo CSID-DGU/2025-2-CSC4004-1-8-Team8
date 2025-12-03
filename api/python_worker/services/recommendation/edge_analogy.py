@@ -5,13 +5,14 @@ from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_distances
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger("librechat.server")
 
 # Hyperparameters
-DISTANCE_THRESHOLD = 0.2  # Cosine Similarity >= 0.8
-MIN_CLUSTER_SIZE = 3      # Minimum samples to form a valid cluster
-MIN_SIMILARITY = 0.75     # Minimum similarity for final recommendation
+DISTANCE_THRESHOLD = 0.8  # Cosine Distance <= 0.8 (Similarity >= 0.2) - Very loose to capture general trend
+MIN_CLUSTER_SIZE = 2      # Minimum samples to form a valid cluster
+MIN_SIMILARITY = 0.4      # Minimum similarity for final recommendation
 
 async def recommend_edge_analogy(
     chroma_client,
@@ -44,7 +45,7 @@ async def recommend_edge_analogy(
         # 1. Get query node embedding
         node_data = await coll.get(ids=[node_id], include=["embeddings"])
         node_embs = node_data.get("embeddings", []) if node_data else []
-        if not node_embs or node_embs[0] is None:
+        if len(node_embs) == 0 or node_embs[0] is None:
             raise HTTPException(status_code=404, detail="Embedding for node_id not found")
         query_emb = np.array(node_embs[0], dtype=np.float32)
 
@@ -56,7 +57,7 @@ async def recommend_edge_analogy(
         edge_embs = edge_data.get("embeddings", []) if edge_data else []
         valid_edge_embs = [e for e in edge_embs if e is not None]
 
-        if not valid_edge_embs:
+        if len(valid_edge_embs) == 0:
             logger.info("No edges found with label '%s'. Returning empty recommendations.", edge_label)
             return []
 
@@ -74,8 +75,16 @@ async def recommend_edge_analogy(
             logger.info("Too few edges (%d) for label '%s'. Minimum required: %d", n_samples, edge_label, MIN_CLUSTER_SIZE)
             return []
         else:
-            # Calculate distance matrix (Cosine Distance)
-            dist_matrix = cosine_distances(edge_matrix)
+            # 3. Clustering & Abstraction
+            # Optimization: MRL (Matryoshka Representation Learning)
+            # Note: Whitening (Z-Score) is skipped because on small, specific batches (like 11 biomimicry edges),
+            # it removes the common signal (the relationship itself), leaving only noise.
+            
+            # 2. MRL: Use first 256 dimensions for clustering to speed up and focus on macro features
+            mrl_matrix = edge_matrix[:, :256]
+            
+            # Calculate distance matrix on MRL features
+            dist_matrix = cosine_distances(mrl_matrix)
             
             clustering = AgglomerativeClustering(
                 n_clusters=None,
@@ -98,6 +107,7 @@ async def recommend_edge_analogy(
                 cluster_vectors = edge_matrix[cluster_mask]
                 centroid = np.mean(cluster_vectors, axis=0)
                 centroids.append(centroid)
+                logger.info("Cluster %d: size=%d", label, cluster_size)
 
         if not centroids:
             logger.info("No valid clusters found for label '%s' after filtering.", edge_label)

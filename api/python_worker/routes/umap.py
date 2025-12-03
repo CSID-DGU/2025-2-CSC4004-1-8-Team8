@@ -78,6 +78,10 @@ async def calculate_umap(
         logger.exception(f"[UMAP] Calculation failed: {e}")
         raise HTTPException(status_code=500, detail="UMAP calculation failed")
 
+    # If there are no embeddings/nodes, skip Mongo update to avoid 500
+    if not coords_data:
+        return []
+
     # Update MongoDB with new coordinates
     try:
         await _update_mongodb_coordinates(kgraph_col, coords_data)
@@ -113,8 +117,10 @@ async def _update_mongodb_coordinates(kgraph_col, coords_data: List[dict]) -> No
         update_q = {"$set": {"nodes.$.x": float(item["x"]), "nodes.$.y": float(item["y"])}}
         updates.append(UpdateOne(filter_q, update_q))
 
+    # If nothing to update, just return without raising to prevent 500
     if not updates:
-        raise ValueError("No updatable nodes found")
+        logger.warning("[UMAP] No updatable nodes found; skipping MongoDB update")
+        return
 
     result = await kgraph_col.bulk_write(updates)
     logger.info(f"[UMAP] MongoDB updated: {result.modified_count} documents")
