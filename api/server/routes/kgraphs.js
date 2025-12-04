@@ -11,7 +11,8 @@ const logger = require('~/config/winston'); // 로그 기록용
  */
 router.get('/', requireJwtAuth, async (req, res) => {
   try {
-    const graphData = await KGraph.getGraph(req.user.id);
+    const { conversationId } = req.query;
+    const graphData = await KGraph.getGraph(req.user.id, conversationId || null);
     res.status(200).json(graphData);
   } catch (error) {
     logger.error(`[kgraph.js] / GET Error: ${error.message}`);
