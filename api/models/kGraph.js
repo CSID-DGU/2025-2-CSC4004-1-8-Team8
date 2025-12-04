@@ -75,13 +75,23 @@ const getOrCreateGraphDoc = async (userId) => {
  * @param {string} userId - 사용자 ID
  * @returns {Promise<{nodes: Array, edges: Array}>}
  */
-const getGraph = async (userId) => {
+const getGraph = async (userId, conversationId = null) => {
   try {
     const graph = await getOrCreateGraphDoc(userId);
 
-    // Mongoose Sub-document의 _id를 id로 변환하여 프론트엔드에 전달
-    const nodes = graph.nodes.map((n) => ({ ...n.toObject(), id: n._id.toString() }));
-    const edges = graph.edges.map((e) => ({ ...e.toObject(), id: e._id.toString() }));
+    // conversationId가 있으면 해당 대화의 노드만 필터, 없으면 전체 노드
+    const filteredNodes = conversationId
+      ? graph.nodes.filter((n) => n.source_conversation_id === conversationId)
+      : graph.nodes;
+
+    // 노드 id 집합 (엣지 필터링에 사용)
+    const nodeIdSet = new Set(filteredNodes.map((n) => n._id.toString()));
+
+    const nodes = filteredNodes.map((n) => ({ ...n.toObject(), id: n._id.toString() }));
+    const filteredEdges = conversationId
+      ? graph.edges.filter((e) => nodeIdSet.has(e.source) && nodeIdSet.has(e.target))
+      : graph.edges;
+    const edges = filteredEdges.map((e) => ({ ...e.toObject(), id: e._id.toString() }));
 
     return { nodes, edges };
   } catch (error) {

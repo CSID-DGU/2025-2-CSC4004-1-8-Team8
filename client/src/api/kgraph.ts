@@ -61,8 +61,11 @@ const normalizeEdge = (edge: any): GraphEdge => ({
   labels: ensureArray(edge?.labels ?? edge?.label),
 });
 
-export async function fetchKnowledgeGraph(): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
-  const data = await request.get('/api/kgraphs');
+export async function fetchKnowledgeGraph(
+  conversationId?: string,
+): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+  const query = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : '';
+  const data = await request.get(`/api/kgraphs${query}`);
   return {
     nodes: (data?.nodes || []).map(normalizeNode),
     edges: (data?.edges || []).map(normalizeEdge),

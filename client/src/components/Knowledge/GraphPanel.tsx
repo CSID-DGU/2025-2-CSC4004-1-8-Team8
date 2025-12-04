@@ -74,47 +74,22 @@ export default function GraphPanel() {
   const [savingNode, setSavingNode] = useState(false);
   const [savingEdge, setSavingEdge] = useState(false);
   const [positioning, setPositioning] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchKnowledgeGraph();
-      const scopedNodes = data.nodes
-        .filter(
-          (node) =>
-            !node.source_conversation_id ||
-            convoScope(node, convoId) === convoId ||
-            node.source_conversation_id === convoId,
-        )
-        .map((node) => ({
-          ...node,
-          source_conversation_id: node.source_conversation_id || convoId,
-        }));
-      const scopedIds = new Set(scopedNodes.map((n) => n.id));
-      const scopedEdges = data.edges.filter(
-        (edge) => scopedIds.has(edge.source) && scopedIds.has(edge.target),
-      );
-      setNodes((prev) => {
-        if (!scopedNodes.length) return prev;
-        const map = new Map<string, GraphNode>();
-        prev.forEach((n) => map.set(n.id, n));
-        scopedNodes.forEach((n) => map.set(n.id, n));
-        return Array.from(map.values());
-      });
-      setEdges((prev) => {
-        if (!scopedEdges.length && !scopedNodes.length) return prev;
-        const map = new Map<string, RFEdge>();
-        prev.forEach((e: any) => map.set(e.id, e as any));
-        scopedEdges.forEach((e: any) => map.set(e.id, e as any));
-        return Array.from(map.values()) as any;
-      });
+      const data = await fetchKnowledgeGraph(showAll ? undefined : convoId);
+      // 서버에서 이미 필터링(conversationId 없으면 전체 그래프)
+      setNodes(data.nodes);
+      setEdges(data.edges as any);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load knowledge graph');
     } finally {
       setLoading(false);
     }
-  }, [convoId, setEdges, setNodes]);
+  }, [convoId, setEdges, setNodes, showAll]);
 
   const repositionGraph = useCallback(async () => {
     setPositioning(true);
@@ -134,7 +109,11 @@ export default function GraphPanel() {
     setNodes([]);
     setEdges([]);
     loadGraph();
-  }, [loadGraph, convoId, setEdges, setNodes]);
+  }, [loadGraph, convoId, setEdges, setNodes, showAll]);
+
+  const toggleScope = () => {
+    setShowAll((prev) => !prev);
+  };
 
   const displayNodes: RFNode[] = useMemo(() => {
     const gapX = 260;
@@ -389,6 +368,9 @@ export default function GraphPanel() {
           {localize('com_sidepanel_knowledge_graph') || 'Knowledge Graph'}
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={toggleScope} disabled={loading}>
+            {showAll ? '대화 그래프 보기' : '전체 그래프 보기'}
+          </Button>
           <Button
             size="sm"
             variant="outline"
