@@ -20,8 +20,24 @@ import {
   deleteGraphEdge,
   createGraphNode,
   requestClusterUpdate,
+  fetchGraphRecommendations,
 } from '~/api/kgraph';
 import type { GraphNode } from '~/store/knowledgeGraph';
+
+const DEFAULT_EDGE_LABELS = [
+  '원인-결과',
+  '문제-해결',
+  '필요-수단',
+  '목표-과제',
+  '조건-결론',
+  '구성-구성요소',
+  '사례-참고',
+  '대안-선택지',
+  '유사/연관',
+  '대비/충돌',
+  '선행-후행',
+  '요구-지원',
+];
 
 const convoScope = (node: GraphNode, fallback = 'default') =>
   node.source_conversation_id ?? fallback;
@@ -75,6 +91,50 @@ export default function GraphPanel() {
   const [savingEdge, setSavingEdge] = useState(false);
   const [positioning, setPositioning] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [recoLoading, setRecoLoading] = useState(false);
+  const [recoIds, setRecoIds] = useState<string[]>([]);
+  const [recoRequested, setRecoRequested] = useState(false);
+  const [recoMethod, setRecoMethod] = useState<'synonyms' | 'edge_analogy'>('synonyms');
+  const [edgeLabelInput, setEdgeLabelInput] = useState('');
+  const [connectingRecoId, setConnectingRecoId] = useState<string | null>(null);
+  const recoItems = useMemo(() => {
+    const map = new Map(nodes.map((n) => [n.id, n]));
+    return recoIds.map((id) => {
+      const node = map.get(id);
+      const label =
+        (node?.labels?.[0] || '').trim() ||
+        (node?.content || '').slice(0, 50) ||
+        '제목 없음';
+      return { id, label };
+    });
+  }, [nodes, recoIds]);
+
+  // edge_analogy용 자동 라벨 추천: 기본 라벨 + 현재 그래프 엣지 라벨 빈도 상위
+  const edgeLabelSuggestions = useMemo(() => {
+    const freq = new Map<string, number>();
+    edges.forEach((edge: any) => {
+      const labels: string[] = Array.isArray(edge.labels)
+        ? edge.labels
+        : edge.label
+          ? [edge.label]
+          : [];
+      labels
+        .map((l) => (typeof l === 'string' ? l.trim() : ''))
+        .filter(Boolean)
+        .forEach((l) => {
+          freq.set(l, (freq.get(l) || 0) + 1);
+        });
+    });
+    // 기본 라벨에 기본 가중치 부여(등장하지 않은 경우 1로)
+    DEFAULT_EDGE_LABELS.forEach((l) => {
+      freq.set(l, (freq.get(l) || 0) + 1);
+    });
+
+    return Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([l]) => l);
+  }, [edges]);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -103,6 +163,34 @@ export default function GraphPanel() {
       setPositioning(false);
     }
   }, [loadGraph]);
+
+  const handleRecommendations = useCallback(async () => {
+    if (!selectedNodeIds.length) {
+      setError('추천을 받을 노드를 선택하세요.');
+      return;
+    }
+    if (recoMethod === 'edge_analogy' && !edgeLabelInput.trim()) {
+      setError('edge_analogy를 사용하려면 관계 라벨을 입력하세요.');
+      return;
+    }
+    setRecoLoading(true);
+    setRecoRequested(true);
+    setError(null);
+    try {
+      const nodeId = selectedNodeIds[0];
+      const params: Record<string, string | number> = { nodeId, top_k: 5 };
+      if (recoMethod === 'edge_analogy') {
+        params.edge_label = edgeLabelInput.trim();
+      }
+      const ids = await fetchGraphRecommendations(recoMethod, params);
+      setRecoIds(ids);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '추천 조회 실패');
+      setRecoIds([]);
+    } finally {
+      setRecoLoading(false);
+    }
+  }, [selectedNodeIds]);
 
   useEffect(() => {
     // clear stale state when switching conversations
@@ -346,6 +434,42 @@ export default function GraphPanel() {
     }
   }, [selectedEdge, setEdges]);
 
+  // 추천 노드에 바로 엣지 연결
+  const handleConnectReco = useCallback(
+    async (targetId: string) => {
+      if (!selectedNodeIds.length) {
+        setError('먼저 기준이 될 노드를 선택하세요.');
+        return;
+      }
+      const sourceId = selectedNodeIds[0];
+      const label =
+        edgeLabelInput.trim() ||
+        edgeLabelSuggestions[0] ||
+        '연결';
+
+      setConnectingRecoId(targetId);
+      setError(null);
+      try {
+        const newEdge = await createGraphEdge({
+          source: sourceId,
+          target: targetId,
+          label,
+        });
+        setEdges((prev) => {
+          const map = new Map<string, any>();
+          prev.forEach((e: any) => map.set(e.id, e));
+          map.set(newEdge.id, newEdge as any);
+          return Array.from(map.values()) as any;
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '추천 노드 연결에 실패했습니다.');
+      } finally {
+        setConnectingRecoId(null);
+      }
+    },
+    [edgeLabelInput, edgeLabelSuggestions, selectedNodeIds, setEdges],
+  );
+
   const clearAll = useCallback(async () => {
     if (!nodes.length) return;
     setClearing(true);
@@ -370,6 +494,19 @@ export default function GraphPanel() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={toggleScope} disabled={loading}>
             {showAll ? '대화 그래프 보기' : '전체 그래프 보기'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRecommendations}
+            disabled={
+              recoLoading ||
+              loading ||
+              !selectedNodeIds.length ||
+              (recoMethod === 'edge_analogy' && !edgeLabelInput.trim())
+            }
+          >
+            {recoLoading ? '추천 불러오는 중...' : '연결 추천'}
           </Button>
           <Button
             size="sm"
@@ -406,6 +543,77 @@ export default function GraphPanel() {
           </ReactFlow>
         )}
       </div>
+
+      {recoRequested && (
+        <div className="mt-2 rounded-md border border-border-light bg-surface-secondary p-2 text-xs text-text-primary">
+          <div className="mb-1 font-semibold">추천 노드</div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <label className="text-[11px] text-text-secondary">추천 방식</label>
+            <select
+              className="rounded border border-border-light bg-background px-2 py-1 text-[11px]"
+              value={recoMethod}
+              onChange={(e) => setRecoMethod(e.target.value as 'synonyms' | 'edge_analogy')}
+            >
+              <option value="synonyms">임베딩 유사도 (synonyms)</option>
+              <option value="edge_analogy">관계 유추 (edge_analogy)</option>
+            </select>
+            {recoMethod === 'edge_analogy' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  className="rounded border border-border-light bg-background px-2 py-1 text-[11px] text-text-primary outline-none focus:border-accent"
+                  placeholder="관계 라벨을 입력하세요"
+                  value={edgeLabelInput}
+                  onChange={(e) => setEdgeLabelInput(e.target.value)}
+                />
+                {edgeLabelSuggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {edgeLabelSuggestions.map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        className="rounded border border-border-light bg-background px-2 py-1 text-[10px] text-text-secondary hover:border-accent"
+                        onClick={() => setEdgeLabelInput(label)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {recoMethod === 'edge_analogy' && (
+            <div className="mb-2 text-[11px] text-text-tertiary">
+              라벨 입력이 없으면 추천 라벨 중 첫 번째를 사용합니다.
+            </div>
+          )}
+          {recoItems.length ? (
+            <div className="flex flex-wrap gap-2">
+              {recoItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded border border-border-light bg-background px-2 py-1 text-[11px] leading-snug text-text-secondary"
+                >
+                  <div className="font-semibold text-text-primary">{item.label}</div>
+                  <div className="font-mono text-[10px] text-text-tertiary">{item.id}</div>
+                  <div className="mt-1 flex gap-1">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={!!connectingRecoId}
+                      onClick={() => handleConnectReco(item.id)}
+                    >
+                      {connectingRecoId === item.id ? '연결 중...' : '연결 추가'}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-text-secondary">추천 결과가 없습니다.</div>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <div className="rounded-md border border-border-light bg-surface-secondary p-3">

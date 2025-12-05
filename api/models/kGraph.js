@@ -786,11 +786,13 @@ const getRecommendations = async (userId, method, params) => {
 
     return recommendations;
   } catch (error) {
-    logger.error(
-      `[KGraph] Error in getRecommendations (userId: ${userId}, method: ${method})`,
-      error,
-    );
-    throw new Error(`추천 노드 조회에 실패했습니다: ${error.message}`);
+    logger.error(`[KGraph] Error in getRecommendations (userId: ${userId}, method: ${method})`, {
+      message: error?.message,
+      status: error?.response?.status,
+      data: safeStringify(error?.response?.data),
+    });
+    // 실패 시 빈 배열 반환 (UI에서 조용히 처리)
+    return [];
   }
 };
 
