@@ -152,8 +152,11 @@ router.get('/recommendations', requireJwtAuth, async (req, res) => {
     const data = await KGraph.getRecommendations(userId, method, params);
     res.status(200).json(data);
   } catch (error) {
-    logger.error(`[kgraph.js] /recommendations GET Error: ${error.message}`);
-    res.status(500).json({ message: '추천 목록 조회에 실패했습니다.' });
+    logger.error(`[kgraph.js] /recommendations GET Error: ${error.message}`, {
+      status: error?.response?.status,
+      data: error?.response?.data,
+    });
+    res.status(500).json({ message: '추천 목록 조회에 실패했습니다.', detail: error?.message });
   }
 });
 

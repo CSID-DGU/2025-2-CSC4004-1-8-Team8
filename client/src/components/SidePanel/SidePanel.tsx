@@ -246,7 +246,7 @@ const SidePanel = ({
           defaultSize={currentLayout[currentLayout.length - 1]}
           collapsible={true}
           minSize={minSize}
-          maxSize={40}
+          maxSize={60}
           ref={panelRef}
           style={{
             overflowY: 'auto',

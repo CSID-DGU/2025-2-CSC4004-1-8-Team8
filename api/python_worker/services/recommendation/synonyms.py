@@ -28,7 +28,8 @@ async def recommend_synonyms(chroma_client, admin_client, user_id: str, node_id:
         data = await coll.get(ids=[node_id], include=["embeddings"])
         embs = data.get("embeddings", []) if data else []
         if len(embs) == 0 or embs[0] is None or len(embs[0]) == 0:
-            raise HTTPException(status_code=404, detail="Embedding for node_id not found")
+            logger.warning("Embedding for node_id %s not found; returning empty recommendations", node_id)
+            return []
 
         query_emb = embs[0]
 
@@ -50,4 +51,5 @@ async def recommend_synonyms(chroma_client, admin_client, user_id: str, node_id:
         raise
     except Exception as e:
         logger.exception("Synonyms embedding recommendation (Chroma) failed: %s", e)
-        raise HTTPException(status_code=500, detail="Embedding-based recommendation failed")
+        # fail soft: return empty list so API doesn't 500
+        return []

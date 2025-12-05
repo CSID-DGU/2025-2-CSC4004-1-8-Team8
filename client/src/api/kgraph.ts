@@ -110,3 +110,15 @@ export async function requestUmapUpdate() {
 export async function requestClusterUpdate() {
   return request.post('/api/kgraphs/cluster');
 }
+
+export async function fetchGraphRecommendations(
+  method: 'least_similar' | 'synonyms' | 'node_tag' | 'edge_analogy' | 'old_ones',
+  params: Record<string, string | number>,
+): Promise<string[]> {
+  const query = new URLSearchParams({
+    method,
+    ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+  });
+  const data = await request.get(`/api/kgraphs/recommendations?${query.toString()}`);
+  return (data as string[]) || [];
+}
