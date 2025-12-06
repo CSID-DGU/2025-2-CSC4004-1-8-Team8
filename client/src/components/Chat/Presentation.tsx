@@ -71,7 +71,7 @@ export default function Presentation({
 
   const defaultLayout = useMemo(() => {
     const resizableLayout = localStorage.getItem('react-resizable-panels:layout');
-    return typeof resizableLayout === 'string' ? JSON.parse(resizableLayout) : undefined;
+    return typeof resizableLayout === 'string' ? JSON.parse(resizableLayout) : [65, 35];
   }, []);
   const defaultCollapsed = useMemo(() => {
     const collapsedPanels = localStorage.getItem('react-resizable-panels:collapsed');
