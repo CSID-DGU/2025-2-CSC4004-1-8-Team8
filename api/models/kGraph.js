@@ -738,6 +738,43 @@ const deleteEdge = async (userId, { source, target }, authHeader) => {
   }
 };
 
+/**
+ * (API New) Graph Reset
+ * 사용자의 그래프 및 임베딩 전체 삭제
+ */
+const clearGraph = async (userId, authHeader) => {
+  try {
+    // 1. MongoDB에서 삭제
+    await KGraph.deleteOne({ userId });
+    logger.info(`[KGraph] MongoDB graph deleted for user ${userId}`);
+
+    // 2. Python에서 삭제
+    try {
+      const url = `${PYTHON_SERVER_URL}/embed/reset`;
+      await axios.post(
+        url,
+        { user_id: userId },
+        {
+          timeout: 15000,
+          headers: authHeader ? { Authorization: authHeader } : {},
+        },
+      );
+      logger.info(`[KGraph] Python embedding reset success (userId: ${userId})`);
+    } catch (embedErr) {
+      logger.error(`[KGraph] Python embedding reset failed:`, {
+        message: embedErr.message,
+        data: embedErr.response ? embedErr.response.data : 'No response data',
+      });
+      // MongoDB는 이미 지워졌으므로 에러를 throw하지 않고 경고만 남김 (또는 선택적으로 throw)
+    }
+
+    return { success: true };
+  } catch (error) {
+    logger.error(`[KGraph] Error in clearGraph (userId: ${userId})`, error);
+    throw error;
+  }
+};
+
 const recommendationStrategies = require('./recommendations');
 
 // ... (existing code)
@@ -780,11 +817,16 @@ const getRecommendations = async (userId, method, params) => {
 
     const recommendations = await strategy(userId, params);
 
+    // Graph에 존재하는 노드만 필터링
+    const graph = await getOrCreateGraphDoc(userId);
+    const nodeIdSet = new Set(graph.nodes.map((n) => n._id.toString()));
+    const filtered = (recommendations || []).filter((id) => nodeIdSet.has(String(id)));
+
     logger.info(
-      `[KGraph] Recommendations retrieved (userId: ${userId}, method: ${method}, count: ${recommendations.length})`,
+      `[KGraph] Recommendations retrieved (userId: ${userId}, method: ${method}, count: ${filtered.length}/${recommendations.length})`,
     );
 
-    return recommendations;
+    return filtered;
   } catch (error) {
     logger.error(`[KGraph] Error in getRecommendations (userId: ${userId}, method: ${method})`, {
       message: error?.message,
@@ -860,6 +902,7 @@ module.exports = {
   createEdge,
   updateEdge,
   deleteEdge,
+  clearGraph,
   getRecommendations,
   calculateCluster,
 };
