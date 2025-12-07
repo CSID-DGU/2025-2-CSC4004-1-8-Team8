@@ -135,6 +135,20 @@ router.post('/edges/delete', requireJwtAuth, async (req, res) => {
 });
 
 /**
+ * (API New) POST /api/kgraphs/reset
+ * 그래프 전체 초기화
+ */
+router.post('/reset', requireJwtAuth, async (req, res) => {
+  try {
+    await KGraph.clearGraph(req.user.id, req.headers.authorization);
+    res.sendStatus(204);
+  } catch (error) {
+    logger.error(`[kgraph.js] /reset POST Error: ${error.message}`);
+    res.status(500).json({ message: '그래프 초기화에 실패했습니다.' });
+  }
+});
+
+/**
  * (API 4.3) GET /api/kgraphs/recommendations
  * 노드 연결 추천
  */

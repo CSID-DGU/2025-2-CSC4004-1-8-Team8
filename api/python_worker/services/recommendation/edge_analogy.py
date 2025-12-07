@@ -155,8 +155,11 @@ async def recommend_edge_analogy(
             for r_id, score in candidate_map.items()
         ]
         recommendations.sort(key=lambda x: x["score"], reverse=True)
+        final_results = recommendations[:top_k]
         
-        return recommendations[:top_k]
+        logger.info(f"Edge Analogy Results for node '{node_id}' with label '{edge_label}': {final_results}")
+        
+        return final_results
 
     except HTTPException:
         raise
