@@ -603,6 +603,22 @@ export default function GraphPanel() {
         )}
       </div>
 
+      {/* 추가 모드 안내 */}
+      <div className="rounded-md border border-border-light bg-surface-secondary p-3">
+        <div className="mb-2 text-sm font-semibold text-text-primary">추가 모드</div>
+        <div className="flex flex-wrap gap-2 text-xs text-text-secondary">
+          <span className="rounded border border-border-light bg-background px-2 py-1">
+            Pre-mortem 모드
+          </span>
+          <span className="rounded border border-border-light bg-background px-2 py-1">
+            악마의 대변인 모드
+          </span>
+          <span className="rounded border border-border-light bg-background px-2 py-1">
+            가상 페르소나 모드
+          </span>
+        </div>
+      </div>
+
       {/* 라벨 입력 모달 (수동 연결용) */}
       {labelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
