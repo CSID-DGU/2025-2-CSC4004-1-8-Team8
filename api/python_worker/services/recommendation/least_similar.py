@@ -73,17 +73,9 @@ async def recommend_least_similar(
             "least_similar: fetched samples ids=%s embs=%s", len(sample_ids), len(sample_embs)
         )
 
-        # filter out None/empty embeddings to avoid casting errors
-        filtered_pairs = [
-            (sid, emb)
-            for sid, emb in zip(sample_ids, sample_embs)
-            if emb is not None and len(emb) > 0
-        ]
-        if not filtered_pairs:
-            logger.warning("least_similar: no embeddings in sampled pool, fallback to ids")
-            return sample_ids[:top_k]
-
-        sample_ids, sample_embs = zip(*filtered_pairs)
+        # simple chroma assumption: sample_embs is list[list[float]] aligned with sample_ids
+        if len(sample_embs) == 0:
+            return []
 
         # build numpy array (n_candidates, dim)
         try:
