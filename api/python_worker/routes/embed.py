@@ -89,13 +89,14 @@ async def embed_node(
         records.append(record)
 
     # Prepare payload for Chroma (without embeddings, let Chroma compute them)
-    ids, documents, _, _ = prepare_chroma_payload(records)
+    ids, documents, _, metadatas = prepare_chroma_payload(records)
 
     # Upsert to Chroma: updates if ID exists, adds if ID doesn't exist
     # When documents are provided without embeddings, Chroma recomputes embeddings
     await chroma_collection.upsert(
         ids=ids,
         documents=documents,
+        metadatas=metadatas
     )
 
     # Retrieve the just-upserted nodes
@@ -230,6 +231,46 @@ async def delete_vectors(
         raise HTTPException(status_code=500, detail="failed deleting vectors")
 
     return {"deleted": len(ids)}
+
+
+class ResetRequest(BaseModel):
+    user_id: str
+
+
+@router.post("/embed/reset")
+async def reset_collection(
+    req: ResetRequest,
+    chroma_client=Depends(get_chroma_client),
+    admin_client=Depends(get_admin_client)
+):
+    """Delete and recreate the user's Chroma collection."""
+    user_id = req.user_id
+    await ensure_tenant_exists_and_set(chroma_client, admin_client, user_id)
+
+    COLLECTION_NAME = os.environ.get("CHROMA_COLLECTION", "librechat_chroma")
+    
+    try:
+        await chroma_client.delete_collection(name=COLLECTION_NAME)
+        logger.info("Deleted collection %s for user %s", COLLECTION_NAME, user_id)
+    except Exception as e:
+        logger.info("Collection %s did not exist or could not be deleted: %s", COLLECTION_NAME, e)
+
+    # Recreate immediately to ensure it exists
+    try:
+        await chroma_client.create_collection(
+            name=COLLECTION_NAME,
+            embedding_function=OpenAIEmbeddingFunction(
+                api_key=os.environ.get("OPENAI_API_KEY"),
+                model_name="text-embedding-3-small"
+            ),
+             metadata={"hnsw:space": "cosine"} # Direct metadata, 'configuration' is deprecated/different in some versions
+        )
+        logger.info("Recreated collection %s for user %s", COLLECTION_NAME, user_id)
+    except Exception as e:
+         logger.error("Failed to recreate collection: %s", e)
+         raise HTTPException(status_code=500, detail="Failed to reset collection")
+
+    return {"status": "reset_complete"}
 
 
 @router.post("/embed/edge", response_model=DocumentsResult)
